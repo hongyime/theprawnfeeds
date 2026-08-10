@@ -176,4 +176,4 @@ vercel deploy
 
 ## License
 
-See LICENSE file for details.
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
