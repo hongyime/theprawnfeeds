@@ -1,5 +1,10 @@
 # The Prawn Feeds
 
+Live demo: https://hongyime.github.io/theprawnfeeds/
+
+![Project screenshot](./screenshot.png)
+
+
 A modern, mobile-first RSS feed aggregator with swipeable navigation and advanced features.
 
 ## Features
