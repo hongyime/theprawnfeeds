@@ -48,6 +48,7 @@ package-lock.json
 !.env.example
 
 
+
 # AI / editor dot directories (managed via sourcerepo)
 .*
 !.github/
