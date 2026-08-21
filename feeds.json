@@ -60,7 +60,7 @@
         },
         {
           "name": "eva",
-          "url": "https://kibty.town/blog.rss",
+          "url": "https://eva.ac/blog.rss",
           "limit": 3
         },
         {
@@ -165,12 +165,12 @@
       "feeds": [
         {
           "name": "Hackread",
-          "url": "https://hackread.com/feed/",
+          "url": "https://feeds.feedburner.com/hackread",
           "limit": 5
         },
         {
           "name": "Check Point Research",
-          "url": "https://research.checkpoint.com/feed",
+          "url": "https://research.checkpoint.com/feed/",
           "limit": 5
         },
         {

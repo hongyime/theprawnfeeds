@@ -4,7 +4,7 @@
  */
 
 // Constants
-const CONCURRENCY_LIMIT = 20;
+const CONCURRENCY_LIMIT = 6;
 const API_ENDPOINT = '/api/rss';
 const EXTENDED_FETCH_LIMIT = 20; // Balanced for reliability on mobile while still supporting modal loading
 const MODAL_LOAD_INCREMENT = 10;
@@ -130,7 +130,7 @@ function startLazyLoadFeeds() {
   console.log(`[RSS Dashboard] Starting background fetch of ${shuffledFeeds.length} feeds (full concurrency, randomized)`);
 
   // Kick off the concurrent fetch but don't wait for completion
-  fetchFeedsWithConcurrency(shuffledFeeds, Math.min(CONCURRENCY_LIMIT, 20))
+  fetchFeedsWithConcurrency(shuffledFeeds, CONCURRENCY_LIMIT)
     .then(() => {
       console.log('[RSS Dashboard] All feeds loaded, sorting by recency');
       sortFeedsByRecency();

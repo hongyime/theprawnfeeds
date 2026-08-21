@@ -770,6 +770,10 @@ async function fetchFeed(feedUrl, limit) {
 
       clearTimeout(timeoutId);
 
+      if (response.status === 202) {
+        throw new Error('HTTP 202: Upstream returned a non-feed response');
+      }
+
       if (!response.ok) {
         const isRetriableHttp = response.status === 429 || (response.status >= 500 && response.status <= 599);
         const isTransientYoutube404 = isYoutube && response.status === 404;
@@ -907,6 +911,10 @@ module.exports = async (req, res) => {
     // Return appropriate error status
     if (error.message.includes('HTTP 404')) {
       return res.status(404).json({ error: 'Feed not found' });
+    } else if (error.message.includes('HTTP 429')) {
+      return res.status(429).json({ error: 'Feed rate limited by upstream' });
+    } else if (error.message.includes('HTTP 202') || error.message.includes('HTTP 403')) {
+      return res.status(503).json({ error: 'Feed blocked by upstream' });
     } else if (error.message.includes('timeout') || error.name === 'AbortError') {
       return res.status(504).json({ error: 'Feed request timed out' });
     } else if (error.message.includes('size limit')) {

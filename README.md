@@ -49,6 +49,25 @@ Edit `feeds.json` to customize feed sources:
 
 `feeds.json` is the single source of truth. The client loads it through `/api/feeds`; there is no generated `public/feeds.js` copy.
 
+Useful feed maintenance commands:
+
+```bash
+# Show every configured feed grouped by section
+npm run feeds:list
+
+# Validate feed names, URLs, limits, and duplicate URLs
+npm run feeds:check
+
+# Live-test a 10-feed sample spread across sections through /api/rss
+npm run feeds:smoke
+
+# Live-test one section, or every configured feed
+npm run feeds:smoke -- --category blogs --limit 5
+npm run feeds:smoke -- --all --concurrency 3
+```
+
+`feeds:smoke` reports upstream blocks and rate limits as warnings. That is expected for sources like Reddit when they throttle RSS requests; malformed config and parse failures still fail the command.
+
 ### YouTube Reliability Upgrade
 
 YouTube RSS endpoints can intermittently return `404`/`500` for valid channels. The app supports a more robust path using YouTube Data API v3 when `YOUTUBE_API_KEY` is set.

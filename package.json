@@ -5,7 +5,10 @@
   "private": true,
   "scripts": {
     "start": "vercel dev",
-    "test": "node --test"
+    "test": "node --test",
+    "feeds:list": "node scripts/feeds.mjs list",
+    "feeds:check": "node scripts/feeds.mjs check",
+    "feeds:smoke": "node scripts/feeds.mjs smoke"
   },
   "dependencies": {
     "fast-xml-parser": "^5.5.7",
