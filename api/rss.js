@@ -1,5 +1,4 @@
 const { XMLParser } = require('fast-xml-parser');
-const sanitizeHtml = require('sanitize-html');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -207,22 +206,33 @@ async function readResponseTextWithLimit(response, maxBytes) {
   return chunks.join('');
 }
 
-/**
- * Sanitize text by stripping all HTML tags, images, scripts
- * @param {string} html - Input HTML string
- * @returns {string} - Plain text output
- */
-function stripHtml(html) {
-  if (!html) return '';
-  
-  // Use sanitize-html to strip all tags
-  const text = sanitizeHtml(html, {
-    allowedTags: [],
-    allowedAttributes: {},
-    textFilter: (text) => text.replace(/\s+/g, ' ')
-  });
-  
-  return text.trim();
+function decodeHtmlEntities(text) {
+  return String(text || '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&#(\d+);/g, (_, code) => {
+      const value = Number.parseInt(code, 10);
+      return Number.isFinite(value) ? String.fromCodePoint(value) : _;
+    })
+    .replace(/&#x([\da-f]+);/gi, (_, code) => {
+      const value = Number.parseInt(code, 16);
+      return Number.isFinite(value) ? String.fromCodePoint(value) : _;
+    });
+}
+
+function stripHtml(input) {
+  if (!input) return '';
+
+  return decodeHtmlEntities(input)
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /**

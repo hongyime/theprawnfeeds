@@ -32,7 +32,7 @@ A Vercel-hosted RSS dashboard that serves a static vanilla JavaScript client and
 - **Client**: Vanilla JavaScript, HTML, CSS
 - **API runtime**: Vercel Node.js functions
 - **Parsing**: `fast-xml-parser`
-- **Sanitization**: `sanitize-html`
+- **Sanitization**: local HTML tag stripping and entity decoding in `api/rss.js`
 - **Data**: `feeds.json`
 - **Deployment**: Vercel
 

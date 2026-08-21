@@ -20,6 +20,7 @@ Progress:
 - `feeds:smoke` now samples across categories by default instead of only testing the first configured section.
 - `/api/rss` now returns HTTP 429 for upstream feed rate limits so Reddit throttling is visible instead of appearing as a generic 500.
 - `feeds:smoke -- --limit 10 --concurrency 2` passed with upstream warnings for Check Point Research and Reddit rate limiting; config validation passed for all 185 feeds.
+- Production logs showed the old deployment crashed in `/api/rss` because `sanitize-html` required an ESM-only `htmlparser2`; removed `sanitize-html` from source and replaced it with local tag stripping/entity decoding for the next deployment.
 
 Next steps:
 - Run feed list/check/smoke commands and report current feed inventory.
