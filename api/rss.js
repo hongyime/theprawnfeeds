@@ -1,7 +1,5 @@
 const { XMLParser } = require('fast-xml-parser');
 const sanitizeHtml = require('sanitize-html');
-const dns = require('node:dns').promises;
-const net = require('node:net');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -11,20 +9,17 @@ const CACHE_TTL = 60 * 60 * 1000; // 60 minutes in milliseconds
 const FETCH_TIMEOUT_MS = 25000;
 const FETCH_RETRIES = 1;
 const YOUTUBE_FETCH_RETRIES = 4;
+const MAX_FEED_RESPONSE_BYTES = 2 * 1024 * 1024;
 const YOUTUBE_SHORTS_PATTERN = /(^|\s)#shorts?\b|\bshorts?\b/i;
 const YOUTUBE_SHORT_DURATION_MAX_SECONDS = 180;
 const YOUTUBE_API_BASE_URL = 'https://www.googleapis.com/youtube/v3';
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:']);
-const BLOCKED_HOSTS = new Set([
-  'localhost',
-  'localhost.localdomain',
-  '0.0.0.0',
-  '0',
-  '127.0.0.1',
-  '::1',
-  '169.254.169.254',
-  'metadata.google.internal'
-]);
+const FEEDS_JSON_PATH = path.join(process.cwd(), 'feeds.json');
+const FEEDS_CONFIG_CACHE_TTL_MS = 5 * 60 * 1000;
+let allowedFeedUrlCache = {
+  at: 0,
+  urls: null
+};
 
 /**
  * Load .env from project root for local development.
@@ -64,61 +59,83 @@ function loadLocalEnvFile() {
 loadLocalEnvFile();
 
 /**
- * Check if an IPv4 address is private/internal/reserved.
- * @param {string} ip
- * @returns {boolean}
- */
-function isPrivateIpv4(ip) {
-  const parts = ip.split('.').map(Number);
-  if (parts.length !== 4 || parts.some(Number.isNaN)) return true;
-
-  const [a, b] = parts;
-
-  // RFC1918 + loopback + link-local + special-use blocks
-  if (a === 10) return true;
-  if (a === 127) return true;
-  if (a === 0) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a >= 224) return true; // multicast/reserved
-
-  return false;
-}
-
-/**
- * Check if an IPv6 address is private/internal/reserved.
- * @param {string} ip
- * @returns {boolean}
- */
-function isPrivateIpv6(ip) {
-  const normalized = ip.toLowerCase();
-
-  if (normalized === '::1' || normalized === '::') return true;
-  if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true; // unique local
-  if (normalized.startsWith('fe80')) return true; // link-local
-
-  return false;
-}
-
-/**
- * Check whether IP is private/internal.
- * @param {string} ip
- * @returns {boolean}
- */
-function isPrivateIp(ip) {
-  const type = net.isIP(ip);
-  if (type === 4) return isPrivateIpv4(ip);
-  if (type === 6) return isPrivateIpv6(ip);
-  return true;
-}
-
-/**
- * Validate outbound feed URL for SSRF safety.
+ * Normalize a configured feed URL for exact allowlist matching.
  * @param {string} rawUrl
- * @returns {Promise<URL>}
+ * @returns {string}
  */
-async function validateFeedUrl(rawUrl) {
+function normalizeConfiguredFeedUrl(rawUrl) {
+  const parsed = new URL(rawUrl);
+
+  if (!ALLOWED_PROTOCOLS.has(parsed.protocol)) {
+    throw new Error('Configured feed URL must use http/https');
+  }
+
+  parsed.hash = '';
+  return parsed.toString();
+}
+
+/**
+ * Match the feed URL mapping used by /api/feeds so callers can only fetch
+ * owner-configured feeds.
+ * @param {object} rawConfig
+ * @returns {Set<string>}
+ */
+function buildAllowedFeedUrls(rawConfig) {
+  const urls = new Set();
+  const add = (rawUrl) => {
+    if (!rawUrl || typeof rawUrl !== 'string') return;
+    urls.add(normalizeConfiguredFeedUrl(rawUrl));
+  };
+
+  for (const section of rawConfig?.sections || []) {
+    for (const feed of section?.feeds || []) {
+      add(feed?.url);
+    }
+  }
+
+  for (const channel of rawConfig?.youtube_channels || []) {
+    if (channel?.channel_id) {
+      add(`https://www.youtube.com/feeds/videos.xml?channel_id=${channel.channel_id}`);
+    }
+  }
+
+  for (const sub of rawConfig?.subreddits || []) {
+    const cleaned = String(sub || '').replace(/^r\//i, '');
+    if (cleaned) {
+      add(`https://www.reddit.com/r/${cleaned}/.rss`);
+    }
+  }
+
+  for (const feed of rawConfig?.substack || []) {
+    add(feed?.url);
+  }
+
+  return urls;
+}
+
+function loadAllowedFeedUrls() {
+  if (allowedFeedUrlCache.urls && Date.now() - allowedFeedUrlCache.at < FEEDS_CONFIG_CACHE_TTL_MS) {
+    return allowedFeedUrlCache.urls;
+  }
+
+  const raw = fs.readFileSync(FEEDS_JSON_PATH, 'utf8');
+  const parsed = JSON.parse(raw);
+  const urls = buildAllowedFeedUrls(parsed);
+
+  allowedFeedUrlCache = {
+    at: Date.now(),
+    urls
+  };
+
+  return urls;
+}
+
+/**
+ * Validate outbound feed URL against the owner-controlled feed config.
+ * @param {string} rawUrl
+ * @returns {URL}
+ */
+function validateFeedUrl(rawUrl) {
   if (!rawUrl || typeof rawUrl !== 'string') {
     throw new Error('Missing feedUrl parameter');
   }
@@ -143,30 +160,51 @@ async function validateFeedUrl(rawUrl) {
     throw new Error('feedUrl must include a hostname');
   }
 
-  if (BLOCKED_HOSTS.has(hostname)) {
-    throw new Error('Blocked feed host');
-  }
-
-  // If hostname is already an IP literal, validate directly.
-  if (net.isIP(hostname)) {
-    if (isPrivateIp(hostname)) {
-      throw new Error('Blocked private/internal IP');
-    }
-    return parsed;
-  }
-
-  // Resolve DNS and ensure no private/internal targets are returned.
-  const resolved = await dns.lookup(hostname, { all: true, verbatim: true });
-  if (!resolved || resolved.length === 0) {
-    throw new Error('Unable to resolve feed host');
-  }
-
-  const hasPrivateTarget = resolved.some(record => isPrivateIp(record.address));
-  if (hasPrivateTarget) {
-    throw new Error('Blocked private/internal feed host resolution');
+  parsed.hash = '';
+  const normalized = parsed.toString();
+  const allowedFeedUrls = loadAllowedFeedUrls();
+  if (!allowedFeedUrls.has(normalized)) {
+    throw new Error('feedUrl is not configured');
   }
 
   return parsed;
+}
+
+/**
+ * Read a response body with a hard byte cap before XML parsing.
+ * @param {Response} response
+ * @param {number} maxBytes
+ * @returns {Promise<string>}
+ */
+async function readResponseTextWithLimit(response, maxBytes) {
+  if (!response.body?.getReader) {
+    const text = await response.text();
+    if (Buffer.byteLength(text, 'utf8') > maxBytes) {
+      throw new Error('Feed response exceeded size limit');
+    }
+    return text;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const chunks = [];
+  let totalBytes = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    totalBytes += value.byteLength;
+    if (totalBytes > maxBytes) {
+      await reader.cancel();
+      throw new Error('Feed response exceeded size limit');
+    }
+
+    chunks.push(decoder.decode(value, { stream: true }));
+  }
+
+  chunks.push(decoder.decode());
+  return chunks.join('');
 }
 
 /**
@@ -726,6 +764,7 @@ async function fetchFeed(feedUrl, limit) {
           'Accept': 'application/rss+xml, application/xml, application/atom+xml, text/xml, */*',
           'Accept-Language': 'en-US,en;q=0.9'
         },
+        redirect: 'manual',
         signal: controller.signal
       });
 
@@ -743,7 +782,7 @@ async function fetchFeed(feedUrl, limit) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const xml = await response.text();
+      const xml = await readResponseTextWithLimit(response, MAX_FEED_RESPONSE_BYTES);
 
       const parser = new XMLParser({
         ignoreAttributes: false,
@@ -870,6 +909,8 @@ module.exports = async (req, res) => {
       return res.status(404).json({ error: 'Feed not found' });
     } else if (error.message.includes('timeout') || error.name === 'AbortError') {
       return res.status(504).json({ error: 'Feed request timed out' });
+    } else if (error.message.includes('size limit')) {
+      return res.status(413).json({ error: 'Feed response too large' });
     } else if (error.message.includes('Unknown feed format')) {
       return res.status(422).json({ error: 'Unable to parse feed format' });
     }
