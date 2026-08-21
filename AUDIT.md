@@ -1,26 +1,27 @@
 # AUDIT.md — theprawnfeeds
 
 Generated: 20260524
+Updated: 20260821
 
 ## 0. FILESYSTEM HEALTH REPORT
 No corrupted, orphaned, or sync artifact files detected.
 
 ## 1. MASTER FEATURE MAP
 | File | Purpose | Key Functions |
-|------|---------|---------------|| main.py | Source file | (see source) |
-| api\feeds.js | Source file | (see source) |
-| api\rss.js | Source file | (see source) |
-| public\app.js | Source file | (see source) |
-| public\feeds.js | Source file | (see source) |
-| public\index.html | Source file | (see source) |
-| public\styles.css | Source file | (see source) |
-| static\style.css | Source file | (see source) |
+|------|---------|---------------|
+| api\feeds.js | Maps canonical `feeds.json` into client feed categories | `loadFeeds`, `mapFeedsConfig` |
+| api\rss.js | Fetches and parses allowlisted RSS/Atom feeds | `validateFeedUrl`, `fetchFeed`, `parseRss2`, `parseAtom` |
+| public\app.js | Browser reader, lazy loading, modal, offline feed UI | `loadFeedsConfig`, `fetchFeed`, `setupSections`, `renderSectionView` |
+| public\index.html | Static reader shell | N/A |
+| public\404.html | Static not-found page | N/A |
+| public\styles.css | Reader styles | N/A |
 
 ## 2. RECONCILIATION SUMMARY
-Small utility project. Documentation matches implementation.
+The app is now Vercel static assets plus Node API functions. The previous Flask path, generated `public/feeds.js`, sync scripts, and GitHub Pages workflows were removed after verification that the primary reader does not depend on them.
 
 ## 3-5. GAPS / GHOSTS / DRIFT
-None identified for this project scope.
+- Historical docs claimed GitHub Pages and Flask support; corrected to Vercel-only Node runtime.
+- `last_sync.txt` was committed at the repo root; moved to `.agents/last_sync.txt`.
 
 ## 6. DATA INTEGRITY
 N/A — no databases.
@@ -28,13 +29,15 @@ N/A — no databases.
 ## 7. CODE QUALITY FINDINGS
 | Tag | Description | Severity |
 |-----|-------------|----------|
-| [DEAD] | No dead code detected | N/A |
+| [DEAD] | Flask runtime and generated feed-sync path were dead for the Vercel reader | Fixed |
+| [SECURITY] | `/api/rss` accepted caller-supplied URLs before allowlist validation | Fixed |
 
 ## 8. STRUCTURAL REORGANIZATION
-No reorganization needed — structure appropriate for project size.
+Structure simplified to one runtime and one feed config source.
 
 ## 9. PRODUCTION READINESS
-N/A — personal/educational utility, not a production service.
+Production readiness improved with Vercel security headers, explicit Node runtime, and no Python catch-all cold starts.
 
 ## 10. REMEDIATION ROADMAP
-No remediation actions required.
+- Add scheduled feed snapshot generation to stop fetching third-party feeds on every page load.
+- Add broader parser fixtures for malformed RSS/Atom entries.

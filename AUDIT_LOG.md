@@ -31,4 +31,8 @@ Status: SAFE (SCA deferred to Dependabot)
 |------|---------|--------|
 | `api/rss.js` URL input | Public `/api/rss` accepted caller-supplied `feedUrl`; it parsed XML into JSON and did not mirror upstream headers/body verbatim, but it was not constrained to configured feeds. | Fixed: exact allowlist derived from `feeds.json`, redirects disabled, XML response size capped. |
 | `api/feeds.js` URL input | Does not accept caller-supplied URLs; it reads `feeds.json` and maps known feed URLs. | No direct SSRF issue found. |
-| Flask path | `main.py` is only reached by legacy `/flask` and catch-all Vercel routes; the primary app routes `/` and `/reader` to `public/index.html` and uses Node APIs. No `templates/` directory exists for `render_template('index.html')`. | Recommend deletion after owner approval. |
+| Flask path | `main.py` was only reached by legacy `/flask` and catch-all Vercel routes; the primary app routes `/` and `/reader` to `public/index.html` and uses Node APIs. No `templates/` directory existed for `render_template('index.html')`. | Deleted after owner approval. |
+
+### Runtime Simplification - 20260821
+
+Removed Flask, Python packaging, generated `public/feeds.js`, feed-sync scripts/workflow, old static Flask assets, and GitHub Pages workflows. The app is now Vercel static assets plus Node API functions with `feeds.json` as the single feed config source.

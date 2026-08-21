@@ -32,8 +32,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          echo "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > last_sync.txt
-          git add last_sync.txt
+          echo "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .agents/last_sync.txt
+          git add .agents/last_sync.txt
           git diff --cached --quiet || git commit -m "chore: sync heartbeat [skip ci]"
           # Rebase before push in case another workflow raced us.
           git pull --rebase || true

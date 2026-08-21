@@ -132,8 +132,8 @@
 
   <!-- Offline Feeds Section -->
   <section class="offline-section" id="offline-section" style="display: none;" aria-label="Offline feeds">
-    <div class="offline-header" onclick="toggleOfflineSection()" role="button" tabindex="0" aria-expanded="false"
-      aria-controls="offline-content" onkeypress="if(event.key==='Enter'||event.key===' ')toggleOfflineSection()">
+    <div class="offline-header" id="offline-header" role="button" tabindex="0" aria-expanded="false"
+      aria-controls="offline-content">
       <h2>⚠️ Offline Feeds (<span id="offline-count" aria-live="polite">0</span>)</h2>
       <span class="collapse-indicator" aria-hidden="true">▼</span>
     </div>
@@ -167,7 +167,6 @@
     📇
   </button>
 
-  <script src="/feeds.js"></script>
   <script src="/app.js"></script>
 </body>
 

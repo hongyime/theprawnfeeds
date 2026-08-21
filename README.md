@@ -1,179 +1,95 @@
 # The Prawn Feeds
 
-Live demo: https://hongyime.github.io/theprawnfeeds/
+Live app: https://theprawnfeeds.hong-yi.me/
 
 ![Project screenshot](./screenshot.png)
 
-
-A modern, mobile-first RSS feed aggregator with swipeable navigation and advanced features.
+A modern, mobile-first RSS feed aggregator with swipeable navigation, lazy feed loading, and grouped offline-feed reporting.
 
 ## Features
 
-### 🎯 Swipeable Section Navigation
-- **5 Sections**: YouTube, Blogs, News, Subreddits, Twitch
+### Swipeable Section Navigation
+- **5 Sections**: Blogs, News, Substack, Subreddits, YouTube
 - **Touch Gestures**: Swipe left/right on mobile devices
-- **Keyboard Navigation**: Use arrow keys (←/→) to navigate
+- **Keyboard Navigation**: Use arrow keys to navigate
 - **Tab Buttons**: Click tabs for direct section access
-- **Smooth 60fps Animations**: Hardware-accelerated CSS transitions
 - **Dynamic Post Counts**: Real-time display of feed counts per section
 
-### 📱 Modal Load More System
-- **Initial Display**: Shows first 10 posts per feed
+### Modal Load More System
+- **Initial Display**: Uses each feed's configured display limit
 - **Load More Button**: Opens modal overlay for additional posts
-- **Infinite Scroll**: Automatically loads 10 posts at a time as you scroll
-- **Multiple Close Methods**:
-  - ✕ button (top right)
-  - ESC key
-  - Click outside modal (on backdrop)
-- **Smooth Animations**: Fade in/slide up effects
+- **Infinite Scroll**: Loads more posts in batches of 10 inside the modal
+- **Multiple Close Methods**: close button, ESC key, or backdrop click
 - **Scroll Position Preservation**: Returns to previous position after closing
 
-### 📡 Grouped Offline Feeds
-- **Auto-Detection**: Automatically identifies failed feed loads
-- **Collapsible Section**: Collapsed by default to reduce clutter
+### Grouped Offline Feeds
+- **Auto-Detection**: Identifies failed feed loads
+- **Collapsible Section**: Collapsed by default
 - **Count Badge**: Shows number of offline feeds
-- **Visual Distinction**: Red tinted cards for easy identification
-- **Keyboard Accessible**: Toggle with Enter or Space key
+- **Keyboard Accessible**: Toggle with Enter or Space
 
-### 🎨 Modern UI/UX
-- **Mobile-First Design**: Optimized for mobile, scales beautifully to desktop
-- **Touch-Friendly**: Minimum 44x44px touch targets
-- **Skeleton Screens**: Loading states with shimmer animations
-- **Error States**: Clear, helpful error messaging
-- **Accessible**: Full ARIA labels and keyboard navigation support
-- **Minimalist Newspaper Favicon**: Clean, monochrome design
+## Runtime
 
-## Usage
+The production app is Vercel-only:
 
-### Access Points
-- **Modern Reader** (Client-side): Visit `/` for the swipeable, interactive experience (default)
-- **Legacy Interface** (Flask): Visit `/flask` for the traditional server-rendered interface
+- Static UI is served from `public/index.html`, `public/app.js`, and `public/styles.css`.
+- `GET /api/feeds` reads canonical feed configuration from `feeds.json`.
+- `GET /api/rss?feedUrl=...&limit=...` fetches and normalizes configured RSS/Atom feeds.
+- `GET /reader` rewrites to the same static reader as `/`.
 
-### Keyboard Shortcuts
-- `←` / `→` Arrow keys: Navigate between sections
-- `ESC`: Close modal
-- `Enter` / `Space`: Toggle offline feeds section
-
-### Mobile Gestures
-- **Swipe Left**: Next section
-- **Swipe Right**: Previous section
-- **Tap Load More**: Open modal with additional posts
-- **Scroll in Modal**: Auto-load more posts
+There is no Flask runtime and no GitHub Pages deployment.
 
 ## Configuration
 
-Edit `feeds.json` to customize your feed sources:
-- Add/remove RSS feeds
-- Set custom limits per feed (default: 10)
-- Organize feeds into sections
+Edit `feeds.json` to customize feed sources:
 
-Edit `public/feeds.js` for client-side configuration.
+- Add/remove RSS, Atom, Substack, subreddit, and YouTube channel sources
+- Set custom display limits per feed
+- Organize sources into sections
 
-### YouTube reliability upgrade (API key)
+`feeds.json` is the single source of truth. The client loads it through `/api/feeds`; there is no generated `public/feeds.js` copy.
 
-YouTube RSS endpoints can intermittently return `404`/`500` for valid channels.
-The app now supports a more robust path using **YouTube Data API v3** when
-`YOUTUBE_API_KEY` is set.
+### YouTube Reliability Upgrade
 
-#### 1) Create an API key (Google Cloud)
+YouTube RSS endpoints can intermittently return `404`/`500` for valid channels. The app supports a more robust path using YouTube Data API v3 when `YOUTUBE_API_KEY` is set.
 
-1. Open Google Cloud Console.
-2. Create/select a project.
-3. Enable **YouTube Data API v3**.
-4. Go to **APIs & Services → Credentials**.
-5. Create an **API key**.
-6. (Recommended) Restrict the key to YouTube Data API v3 and your server usage.
+Configure locally with a `.env` file:
 
-#### 2) Configure locally
+```bash
+YOUTUBE_API_KEY=your_key_here
+```
 
-Create a `.env` file in project root and set:
+Configure production in the Vercel project environment variables:
 
-- `YOUTUBE_API_KEY=your_key_here`
+```text
+YOUTUBE_API_KEY=your_key_here
+```
 
-#### 3) Configure in Vercel
+Behavior:
 
-In your Vercel project settings, add environment variable:
+- If `YOUTUBE_API_KEY` is present, YouTube feeds use the Data API first.
+- If the key is missing or the Data API request fails, the app falls back to RSS.
 
-- `YOUTUBE_API_KEY` = your key value
+## Security
 
-Then redeploy.
-
-#### 4) Behavior
-
-- If `YOUTUBE_API_KEY` is present, YouTube feeds use Data API (more reliable).
-- If key is missing or API fails temporarily, app falls back to RSS behavior.
-
-### Why both `feeds.json` and `public/feeds.js` exist
-
-The project currently has **two runtime paths**:
-
-- `feeds.json` is used by the Flask/server-rendered path (`/flask`, via `main.py`)
-- `public/feeds.js` is used by the modern client-side reader (`/`)
-
-Historically this made it easy to evolve each experience independently, but it can introduce drift.
-
-### Phase-2 config workflow (drift detection + optional sync)
-
-You now have scripts to manage this safely:
-
-- `npm run check:feeds:strict` → validates that `public/feeds.js` matches `feeds.json` and exits non-zero on drift
-- `npm run sync:feeds` → intentionally regenerates `public/feeds.js` from `feeds.json`
-
-Recommended flow:
-
-1. Edit `feeds.json`
-2. Run `npm run sync:feeds`
-3. Run `npm run check:feeds:strict`
-
-### Auto-sync reminders and guards
-
-- **On local commit**: Husky `pre-commit` runs `npm run precommit:feeds`, which refreshes `public/feeds.js` from `feeds.json` and stages the updated file automatically.
-- **On GitHub push/PR**: workflow `.github/workflows/feeds-sync-check.yml` runs `npm run ci:feeds` and fails if `public/feeds.js` is out of sync.
-
-After pulling these changes, run `npm install` once to activate Git hooks via `prepare`.
-
-## Technical Details
-
-### Performance
-
-- 60fps animations via hardware acceleration
-- Efficient DOM manipulation
-- Lazy loading for images
-- Client-side caching (60-minute TTL)
-- Debounced scroll handlers
-
-### Accessibility
-
-- ARIA labels and roles
-- Keyboard navigation throughout
-- Screen reader optimized
-- Focus management
-- Semantic HTML5
-
-### Browser Support
-
-- Modern browsers (Chrome, Firefox, Safari, Edge)
-- Mobile browsers (iOS Safari, Chrome Mobile)
-- Progressive enhancement approach
+- `/api/rss` only fetches URLs derived from `feeds.json`.
+- RSS fetches use `redirect: 'manual'` and do not follow upstream redirects.
+- Upstream XML response bodies are capped before parsing.
+- Upstream headers and bodies are never mirrored verbatim; responses are normalized JSON.
+- Vercel response headers include CSP, `X-Content-Type-Options`, `Referrer-Policy`, and `Permissions-Policy`.
+- Node is pinned to `22.x` through `package.json` `engines.node`; API function duration is pinned in `vercel.json`.
 
 ## Development
 
 ```bash
 # Install dependencies
-pip install -r requirements.txt
 npm install
 
-# Run locally
-python main.py
+# Run tests
+npm test
 
-# Enforce sync in CI
-npm run check:feeds:strict
-
-# Regenerate client feed config from feeds.json
-npm run sync:feeds
-
-# Auto-sync and verify in one command
-npm run refresh:feeds
+# Run locally with Vercel routing/functions
+npm start
 
 # Deploy to Vercel
 vercel deploy

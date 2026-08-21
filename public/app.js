@@ -50,38 +50,9 @@ function normalizeFeedsShape(rawFeeds = {}) {
 }
 
 /**
- * Build stable signature for FEEDS object comparison.
- */
-function getFeedsSignature(rawFeeds = {}) {
-  const normalized = normalizeFeedsShape(rawFeeds);
-  const rows = [];
-
-  for (const [category, feeds] of Object.entries(normalized)) {
-    for (const feed of feeds) {
-      rows.push({
-        category,
-        name: String(feed?.name || '').trim(),
-        url: String(feed?.url || '').trim().toLowerCase(),
-        limit: Number.isFinite(feed?.limit) ? feed.limit : 3
-      });
-    }
-  }
-
-  rows.sort((a, b) => {
-    if (a.category !== b.category) return a.category.localeCompare(b.category);
-    if (a.url !== b.url) return a.url.localeCompare(b.url);
-    return a.name.localeCompare(b.name);
-  });
-
-  return JSON.stringify(rows);
-}
-
-/**
- * Load canonical feed config from API, with fallback to bundled feeds.js.
+ * Load canonical feed config from the Vercel API.
  */
 async function loadFeedsConfig() {
-  const fallbackFeeds = normalizeFeedsShape(window.FEEDS || {});
-
   try {
     const response = await fetch('/api/feeds', {
       headers: { 'Accept': 'application/json' }
@@ -95,30 +66,10 @@ async function loadFeedsConfig() {
     const canonicalFeeds = normalizeFeedsShape(data);
     window.FEEDS = canonicalFeeds;
 
-    // Reminder: if fallback feeds.js diverges from canonical feeds.json mapping,
-    // surface an actionable warning for local maintenance.
-    const fallbackCount = Object.values(fallbackFeeds).reduce((sum, items) => sum + items.length, 0);
-    if (fallbackCount > 0) {
-      const canonicalSig = getFeedsSignature(canonicalFeeds);
-      const fallbackSig = getFeedsSignature(fallbackFeeds);
-
-      if (canonicalSig !== fallbackSig) {
-        console.warn('[RSS Dashboard] feeds.js safety-net is out of sync with canonical feeds.json. Run: npm run sync:feeds');
-      }
-    }
-
     console.log('[RSS Dashboard] Loaded canonical feed config from /api/feeds');
     return;
   } catch (error) {
-    const fallbackCount = Object.values(fallbackFeeds).reduce((sum, items) => sum + items.length, 0);
-
-    if (fallbackCount > 0) {
-      window.FEEDS = fallbackFeeds;
-      console.warn('[RSS Dashboard] Falling back to bundled feeds.js config:', error?.message || error);
-      return;
-    }
-
-    console.error('[RSS Dashboard] Failed to load feed config from API and fallback config is empty');
+    console.error('[RSS Dashboard] Failed to load feed config from API:', error?.message || error);
     window.FEEDS = normalizeFeedsShape({});
   }
 }
@@ -130,7 +81,7 @@ async function init() {
   // Set current year
   document.getElementById('year').textContent = new Date().getFullYear();
 
-  // Load feed configuration (canonical API with safe fallback)
+  // Load feed configuration from the canonical API.
   await loadFeedsConfig();
 
   // Setup theme toggle
@@ -696,9 +647,6 @@ function toggleOfflineSection() {
     indicator.textContent = '▲';
   }
 }
-
-// Make it globally accessible for onclick
-window.toggleOfflineSection = toggleOfflineSection;
 
 /**
  * Setup tab navigation with view toggle
@@ -1332,6 +1280,17 @@ function setupModal() {
   // Setup infinite scroll
   const modalBody = document.getElementById('modal-body');
   modalBody.addEventListener('scroll', handleModalScroll);
+
+  const offlineHeader = document.getElementById('offline-header');
+  if (offlineHeader) {
+    offlineHeader.addEventListener('click', toggleOfflineSection);
+    offlineHeader.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        toggleOfflineSection();
+      }
+    });
+  }
 }
 
 let modalLoadOffset = 0;
