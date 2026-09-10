@@ -75,3 +75,19 @@ dark-mode screenshot showed white selected-tab text on a white background.
 Explicit exceptions include only the two runtime helpers. A semantic inverse
 text color fixes selected categories and load-more controls in both themes;
 the browser fixture now checks their computed foreground/background colors.
+
+Production verification of 228e71a found that `autoAssignCustomDomains` was
+false: both public domains stayed on older deployments while the team URL
+served the new release. Explicit promotion moved the domains and restored
+automatic assignment; the API now reports true and the matching deployment.
+
+The public `/reader` route still returned 404. Its existing rewrite points to
+`/index.html` while `cleanUrls` is true. Vercel's configuration documentation
+requires extensionless destinations with clean URLs; the index destination
+must be `/`. Verify this change against the actual hosted route, not only the
+local static server: https://vercel.com/docs/project-configuration/vercel-json.
+
+The hosted browser fixture failed in Playwright's `wait_for_function` with a
+CSP EvalError, rather than an app exception. Replace that test helper with
+bounded protocol evaluations and serve the production CSP in local fixtures
+so CI covers this difference. Keep the application's security headers intact.

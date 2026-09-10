@@ -20,12 +20,16 @@ out=Path(args.report_dir) if args.report_dir else Path(tempfile.mkdtemp(prefix='
 out.mkdir(parents=True,exist_ok=True)
 mapped=subprocess.run(['node','-e',"require('./api/feeds')({method:'GET'},{setHeader(){},status(){return this},json(data){process.stdout.write(JSON.stringify(data))}})"],cwd=root,capture_output=True,text=True,check=True)
 catalog=json.loads(mapped.stdout)
+security_headers=json.loads((root/'vercel.json').read_text())['headers'][0]['headers']
 assert sum(map(len,catalog.values()))==185
 sections={feed['url']:section for section,feeds in catalog.items() for feed in feeds}
 first_blog=catalog['blogs'][0]['url']
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self,*a,**kw):super().__init__(*a,directory=str(root/'public'),**kw)
     def log_message(self,*a):pass
+    def end_headers(self):
+        for header in security_headers:self.send_header(header['key'],header['value'])
+        super().end_headers()
 server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
 Thread(target=server.serve_forever,daemon=True).start()
 base=args.base_url.rstrip('/') if args.base_url else 'http://127.0.0.1:'+str(server.server_port)
@@ -36,6 +40,12 @@ try:
     browser=playwright.chromium.launch(headless=True)
     for width in [1440,390]:
       page=browser.new_page(viewport={'width':width,'height':1000},reduced_motion='reduce')
+      def wait_for_state(expression,arg=None):
+        # Protocol evaluation works with the production CSP; page-side eval does not.
+        deadline=time.monotonic()+30
+        while not page.evaluate(expression,arg):
+          assert time.monotonic()<deadline, 'Reader state did not settle: '+expression
+          page.wait_for_timeout(25)
       errors=[];requests=[];held=[];hold=True;external=[]
       page.on('pageerror',lambda e:errors.append(str(e)))
       def fulfill(route):
@@ -71,6 +81,7 @@ try:
       if args.base_url:
         page.evaluate('document.fonts.ready')
         assert page.evaluate('document.fonts.check(\'500 16px "Space Grotesk"\')'), 'Production font did not load'
+        assert page.evaluate("() => [...document.fonts].some(face=>face.family.includes('Space Grotesk') && face.status==='loaded')"), 'No loaded Space Grotesk font face'
       deadline=time.monotonic()+10
       while len(held)<6:
         assert time.monotonic()<deadline,'Initial queue did not start'
@@ -92,16 +103,16 @@ try:
       }""")
       for route in held[:]:fulfill(route)
       held.clear()
-      page.wait_for_function('feedQueue.active === 0')
+      wait_for_state('() => feedQueue.active === 0')
       assert len(requests)==6,'Hidden tab continued queued requests'
       hold=False
       page.evaluate("window.fixtureHidden=false;document.dispatchEvent(new Event('visibilitychange'))")
-      page.wait_for_function("feedQueue.summary('news').finished === 13")
+      wait_for_state("() => feedQueue.summary('news').finished === 13")
       assert len(requests)==19
       assert all(sections[url] in ['blogs','news'] for url in requests)
       assert page.locator('#news-grid .timeline-item').count()>0
       navigate('blogs')
-      page.wait_for_function("feedQueue.summary('blogs').finished === 31")
+      wait_for_state("() => feedQueue.summary('blogs').finished === 31")
       assert len(requests)==44
       assert page.locator('#blogs-grid .feed-card.loading').count()==0
       assert page.locator('#blogs-grid .feed-card').count()==30
@@ -133,7 +144,7 @@ try:
       for section in ['substack','subreddits','youtube']:
         navigate(section)
         try:
-          page.wait_for_function('(section)=>feedQueue.summary(section).finished===feedQueue.summary(section).total',arg=section)
+          wait_for_state('(section)=>feedQueue.summary(section).finished===feedQueue.summary(section).total',arg=section)
         except Exception:
           print(json.dumps({'failed_viewport':width,'requested_section':section,'requests':len(requests),'page_errors':errors,
             'queue':page.evaluate('({current:currentSection,active:feedQueue.active,section:feedQueue.section,visible:feedQueue.visible,summary:feedQueue.summary(currentSection)})')}),flush=True)

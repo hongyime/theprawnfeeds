@@ -9,13 +9,19 @@ Invalid Unicode entities no longer crash normalization. Prawn styling retains
 light/dark/system themes; final review fixed dark-mode selected-control contrast
 and the legacy Python ignore rule that excluded the new runtime helpers.
 
-Validation: 24 Node tests pass locally on Node 26. Desktop (1440px) and mobile
-(390px) browser fixtures pass, including the updated dark-mode contrast check.
-Node 22 CI, production deployment and public route/asset verification remain pending.
+Validation: release 228e71a passed all 24 Node tests and desktop/mobile browser
+fixtures in hosted Node 22 CI; all six main workflows passed. Its Vercel
+deployment is dpl_6wMCXQhsR9VnGGfefBQybDsXwt5n. Domain assignment had been
+disabled; explicit promotion restored both public domains and automatic
+assignment. Follow-up fixes the existing `/reader` clean-URL rewrite and
+makes browser fixtures run with the unchanged production CSP. Verify the
+follow-up preview and both public domains, including `/reader`, before closure.
 All provider responses in local tests are synthetic; monthly usage savings
 are not established. No collection schedule or persistent storage is changed.
-The original checkout's recovered/untracked work and damaged historical object
-are preserved; release work uses an independent clean clone. See AUDIT.md.
+The original checkout's eleven recovered/untracked files are preserved. One
+missing tree was restored from the verified clean clone; a full object download
+repaired most remaining history gaps, with three objects still under review.
+Release work uses an independent clean clone. See AUDIT.md.
 
 Historical context follows; the release checklist above is current.
 
