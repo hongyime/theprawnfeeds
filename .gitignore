@@ -11,6 +11,11 @@ downloads/
 eggs/
 .eggs/
 lib/
+# Runtime JavaScript helpers alongside the legacy Python ignore rules.
+!/lib/
+/lib/*
+!/lib/feed-cache.js
+!/lib/feed-transport.js
 lib64/
 parts/
 sdist/

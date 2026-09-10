@@ -6,6 +6,32 @@ Live app: https://theprawnfeeds.hong-yi.me/
 
 A modern, mobile-first RSS feed aggregator with swipeable navigation, lazy feed loading, and grouped offline-feed reporting.
 
+The reader now loads a category when it is opened, with one six-request queue
+shared across navigation. Hidden tabs pause unstarted work; existing requests
+finish and their results remain available when you return. Opening only Blogs
+requires its 31 feeds rather than all 185 configured sources. Visiting every
+category still loads every configured source. This is a request-count reduction,
+not a measured Vercel billing saving. No feed catalog entries or stored records
+are removed, and no snapshot/collection workflow is added.
+
+Upstream fetches share a 25-second deadline inside the 30-second function limit.
+Each attempt includes its response body, is capped at eight seconds and 2 MiB,
+and permits at most one transient retry. Rate limits are not immediately
+retried. YouTube API stages and any RSS fallback share the same deadline.
+Identical in-flight work is reused per instance; at most 16 distinct fetches
+run there at once. Response cache payloads are bounded to 8 MiB/256 entries,
+fresh for one hour, and usable as an explicitly marked fallback for up to six
+hours during upstream failures. These are instance-level controls, not a global
+quota guarantee. Public CDN/browser caching remains enabled; failures use
+`no-store` and rate limits retain `Retry-After`.
+
+The visual system follows Prawn Projects: Space Grotesk, neutral colors, square
+edges, strong borders and visible keyboard focus, with light/dark/system modes.
+Run `npm test` for transport, queue and parser contracts. The Reader checks
+workflow also exercises desktop/mobile navigation, card/timeline updates,
+hidden-tab suspension, modal behavior and catalog failures using synthetic
+responses; it never requests real feed content or a YouTube API key.
+
 ## Features
 
 ### Swipeable Section Navigation
@@ -87,7 +113,7 @@ YOUTUBE_API_KEY=your_key_here
 Behavior:
 
 - If `YOUTUBE_API_KEY` is present, YouTube feeds use the Data API first.
-- If the key is missing or the Data API request fails, the app falls back to RSS.
+- If the key is missing or the Data API is unavailable, the app falls back to RSS within the same request deadline. Rate limits, oversized responses and an exhausted deadline stop the request without trying another route.
 
 ## Security
 

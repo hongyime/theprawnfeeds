@@ -13,7 +13,8 @@ const SAFE_PROTOCOLS = new Set(['http:', 'https:']);
 
 // State
 let currentSection = 'blogs';
-let loadedFeeds = 0;
+let feedQueue = null;
+let configFailed = false;
 let totalFeeds = 0;
 const failedFeeds = [];
 const feedDataCache = new Map();
@@ -54,15 +55,15 @@ function normalizeFeedsShape(rawFeeds = {}) {
  */
 async function loadFeedsConfig() {
   try {
-    const response = await fetch('/api/feeds', {
-      headers: { 'Accept': 'application/json' }
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
+    let data;
+    try {
+      const response = await fetch('/api/feeds', { headers: { Accept: 'application/json' }, signal: controller.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      data = await response.json();
+    } finally { clearTimeout(timer); }
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const data = await response.json();
     const canonicalFeeds = normalizeFeedsShape(data);
     window.FEEDS = canonicalFeeds;
 
@@ -71,6 +72,7 @@ async function loadFeedsConfig() {
   } catch (error) {
     console.error('[RSS Dashboard] Failed to load feed config from API:', error?.message || error);
     window.FEEDS = normalizeFeedsShape({});
+    configFailed = true;
   }
 }
 
@@ -97,6 +99,13 @@ async function init() {
   setupKeyboardNavigation();
   setupViewFab();
   setupModal();
+  document.addEventListener('visibilitychange', () => {
+    startLazyLoadFeeds();
+    if (!document.hidden) renderSectionView(currentSection);
+  });
+  document.getElementById('retry-config')?.addEventListener('click', () => window.location.reload());
+  const configError = document.getElementById('config-error');
+  if (configError) configError.hidden = !configFailed;
 
   // Load initial section (Blogs) in timeline view
   switchSection('blogs');
@@ -110,42 +119,13 @@ async function init() {
     }, 300);
   }
 
-  console.log(`[RSS Dashboard] Initialized with ${totalFeeds} feeds (lazy-loading in background)`);
+  console.log(`[RSS Dashboard] Initialized with ${totalFeeds} feeds; categories load when opened`);
 }
 
-/**
- * Start lazy fetching all feeds in background (non-blocking).
- * Feeds populate cards as they complete.
- * Prioritizes current visible section for faster perceived performance.
- */
+/** Start only pending feeds in the visible category. */
 function startLazyLoadFeeds() {
-  if (!window.feedConfigsPending || window.feedConfigsPending.length === 0) return;
-
-  // Prioritize current visible section first, then load all others concurrently.
-  const currentSectionFeeds = window.feedConfigsPending.filter(cfg => cfg.section === currentSection);
-  const otherFeeds = window.feedConfigsPending.filter(cfg => cfg.section !== currentSection);
-  const prioritizedFeeds = [...currentSectionFeeds, ...otherFeeds];
-  const shuffledFeeds = shuffleArray(prioritizedFeeds);
-
-  console.log(`[RSS Dashboard] Starting background fetch of ${shuffledFeeds.length} feeds (full concurrency, randomized)`);
-
-  // Kick off the concurrent fetch but don't wait for completion
-  fetchFeedsWithConcurrency(shuffledFeeds, CONCURRENCY_LIMIT)
-    .then(() => {
-      console.log('[RSS Dashboard] All feeds loaded, sorting by recency');
-      sortFeedsByRecency();
-      rerenderAllSections();
-      updateLiveLoadingStatus();
-
-      if (failedFeeds.length > 0) {
-        displayOfflineFeeds();
-      }
-    })
-    .catch((error) => {
-      console.error('[RSS Dashboard] Feed loading failed:', error);
-    });
-
-  window.feedConfigsPending = null;
+  feedQueue?.setView(currentSection, !document.hidden);
+  updateLiveLoadingStatus();
 }
 
 /**
@@ -181,72 +161,39 @@ function updateViewFabIcon() {
   fab.setAttribute('title', isTimeline ? 'Cards view' : 'Timeline view');
 }
 
-/**
- * Setup all sections and create feed cards with skeleton loaders.
- * Does NOT fetch feeds - that happens asynchronously via startLazyLoadFeeds().
- */
+/** Configure work without fetching or creating cards for hidden categories. */
 function setupSections() {
-  const feedConfigs = [];
+  const entries = Object.entries(window.FEEDS || {}).flatMap(([section, feeds]) =>
+    feeds.map(feed => ({ section, feed })));
+  totalFeeds = entries.length;
+  feedQueue = new window.FeedQueue(entries, {
+    limit: CONCURRENCY_LIMIT,
+    run: ({ feed }) => fetchFeed(feed),
+    onChange: onFeedProgress
+  });
+}
 
-  // Blogs section
-  if (window.FEEDS?.blogs) {
-    const grid = document.getElementById('blogs-grid');
-    window.FEEDS.blogs.forEach(feed => {
-      const card = createFeedCard(feed.name, 'blogs', feed.url);
-      grid.appendChild(card);
-      feedConfigs.push({ feed, card, grid, section: 'blogs' });
-    });
-  }
-
-  // News section
-  if (window.FEEDS?.news) {
-    const grid = document.getElementById('news-grid');
-    window.FEEDS.news.forEach(feed => {
-      const card = createFeedCard(feed.name, 'news', feed.url);
-      grid.appendChild(card);
-      feedConfigs.push({ feed, card, grid, section: 'news' });
-    });
-  }
-
-  // Substack section
-  if (window.FEEDS?.substack) {
-    const grid = document.getElementById('substack-grid');
-    window.FEEDS.substack.forEach(feed => {
-      const card = createFeedCard(feed.name, 'substack', feed.url);
-      grid.appendChild(card);
-      feedConfigs.push({ feed, card, grid, section: 'substack' });
-    });
-  }
-
-  // Subreddits section
-  if (window.FEEDS?.subreddits) {
-    const grid = document.getElementById('subreddits-grid');
-    window.FEEDS.subreddits.forEach(feed => {
-      const card = createFeedCard(feed.name, 'subreddits', feed.url);
-      grid.appendChild(card);
-      feedConfigs.push({ feed, card, grid, section: 'subreddits' });
-    });
-  }
-
-  // YouTube section
-  if (window.FEEDS?.youtube) {
-    const grid = document.getElementById('youtube-grid');
-    window.FEEDS.youtube.forEach(feed => {
-      const card = createFeedCard(feed.name, 'youtube', feed.url);
-      grid.appendChild(card);
-      feedConfigs.push({ feed, card, grid, section: 'youtube' });
-    });
-  }
-
-  totalFeeds = feedConfigs.length;
-  loadedFeeds = 0;
+function onFeedProgress(entry) {
+  if (entry.status === 'error') showFeedError(entry.error, entry.feed, entry.section);
   updateLiveLoadingStatus();
-
-  // Store feed configs for async lazy loading
-  window.feedConfigsPending = feedConfigs;
-
-  // Start fetching immediately for instant content
-  startLazyLoadFeeds();
+  if (entry.section !== currentSection || document.hidden) return;
+  if (sectionViewState[currentSection] === 'cards') {
+    const grid = document.getElementById(`${currentSection}-grid`);
+    const key = getFeedCacheKey(entry.feed);
+    const card = [...grid.querySelectorAll('.feed-card')].find(item => item.dataset.feedKey === key);
+    if (entry.status === 'success' && card) updateFeedCard(card, entry.value, entry.feed.limit);
+    else if (card) card.remove();
+    if (grid.children.length === 0) renderSectionView(currentSection);
+    sortFeedsByRecencyInGrid(grid);
+  } else {
+    clearTimeout(timelineUpdateTimer);
+    if (!timelineHasRendered || feedQueue.summary(currentSection).finished === feedQueue.summary(currentSection).total) {
+      renderSectionView(currentSection);
+      timelineHasRendered = true;
+    } else {
+      timelineUpdateTimer = setTimeout(() => renderSectionView(currentSection), 150);
+    }
+  }
 }
 
 /**
@@ -283,132 +230,41 @@ function createFeedCard(name, category, url = '') {
 /**
  * Fetch a single feed
  */
-async function fetchFeed(feed, card) {
+async function fetchFeed(feed) {
+  const key = getFeedCacheKey(feed);
+  if (feedDataCache.has(key)) return feedDataCache.get(key);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 28000);
   try {
     const url = `${API_ENDPOINT}?feedUrl=${encodeURIComponent(feed.url)}&limit=${EXTENDED_FETCH_LIMIT}`;
-    const response = await fetch(url);
-
+    const response = await fetch(url, { signal: controller.signal });
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      throw new Error(response.status === 429 ? 'Source is rate limited; try again later' :
+        response.status === 504 ? 'Source took too long to respond' : `Source unavailable (HTTP ${response.status})`);
     }
-
     const data = await response.json();
-
-    // Cache the feed data
-    feedDataCache.set(getFeedCacheKey(feed), data);
-
-    updateFeedCard(card, data, feed.limit);
-    
-    // Progressively update timeline view as feeds load
-    const feedSection = card.parentElement?.id?.replace('-grid', '');
-    if (feedSection === currentSection && sectionViewState[currentSection] === 'timeline') {
-      if (!timelineHasRendered) {
-        // First render: immediate for instant feedback
-        renderSectionView(currentSection);
-        timelineHasRendered = true;
-      } else {
-        // Subsequent renders: debounced to avoid excessive re-renders
-        clearTimeout(timelineUpdateTimer);
-        timelineUpdateTimer = setTimeout(() => {
-          renderSectionView(currentSection);
-        }, 150);
-      }
-    }
+    if (!data || !Array.isArray(data.items)) throw new Error('Invalid feed response');
+    feedDataCache.set(key, data);
+    const failedIndex = failedFeeds.findIndex(item => item.key === key);
+    if (failedIndex !== -1) failedFeeds.splice(failedIndex, 1);
+    return data;
   } catch (error) {
-    showFeedError(card, error.message, feed);
-  } finally {
-    loadedFeeds++;
-    updateLiveLoadingStatus();
-  }
+    if (error.name === 'AbortError') throw new Error('Source took too long to respond');
+    throw error;
+  } finally { clearTimeout(timer); }
 }
 
-/**
- * Fetch feeds with concurrency limit
- * All feeds are processed in one concurrent queue (including YouTube)
- */
-async function fetchFeedsWithConcurrency(feedConfigs, limit) {
-  await processFeedQueue(feedConfigs, limit);
-}
-
-/**
- * Fisher-Yates shuffle for randomized loading order.
- */
-function shuffleArray(items = []) {
-  const arr = [...items];
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
-
-/**
- * Update live loading status indicator in header.
- */
 function updateLiveLoadingStatus() {
   const el = document.getElementById('live-loading-status');
-  if (!el) return;
-
-  if (liveLoadingHideTimer) {
-    clearTimeout(liveLoadingHideTimer);
-    liveLoadingHideTimer = null;
-  }
-
-  if (totalFeeds <= 0) {
-    el.style.display = 'none';
-    el.textContent = '';
-    el.classList.remove('complete');
-    return;
-  }
-
-  if (loadedFeeds < totalFeeds) {
-    el.style.display = '';
-    el.textContent = `Live loading ${loadedFeeds}/${totalFeeds}…`;
-    el.classList.remove('complete');
-    return;
-  }
-
-  el.style.display = '';
-  el.textContent = `Live loading complete ${loadedFeeds}/${totalFeeds} ✓`;
-  el.classList.add('complete');
-
-  liveLoadingHideTimer = setTimeout(() => {
-    if (loadedFeeds >= totalFeeds) {
-      el.style.display = 'none';
-    }
-  }, 1200);
-}
-
-/**
- * Re-render all sections after batch load so users see updated content immediately
- * when switching tabs (without needing to switch away/back).
- */
-function rerenderAllSections() {
-  const sections = ['blogs', 'news', 'substack', 'subreddits', 'youtube'];
-  sections.forEach(section => renderSectionView(section));
-}
-
-/**
- * Process a queue of feeds with specified concurrency limit
- */
-async function processFeedQueue(feedConfigs, limit) {
-  const pending = [...feedConfigs];
-  const executing = [];
-
-  while (pending.length > 0 || executing.length > 0) {
-    // Fill up to concurrency limit
-    while (executing.length < limit && pending.length > 0) {
-      const cfg = pending.shift();
-      const promise = fetchFeed(cfg.feed, cfg.card).then(() => {
-        executing.splice(executing.indexOf(promise), 1);
-      });
-      executing.push(promise);
-    }
-
-    // Wait for any feed to complete
-    if (executing.length > 0) {
-      await Promise.race(executing);
-    }
+  if (!el || !feedQueue) return;
+  clearTimeout(liveLoadingHideTimer);
+  const { total, finished, failed } = feedQueue.summary(currentSection);
+  el.style.display = total ? '' : 'none';
+  el.classList.toggle('complete', finished === total);
+  el.textContent = finished < total ? `Loading ${finished}/${total}…` :
+    `Checked ${finished}/${total}${failed ? ` · ${failed} unavailable` : ' ✓'}`;
+  if (finished === total && !failed) {
+    liveLoadingHideTimer = setTimeout(() => { el.style.display = 'none'; }, 1200);
   }
 }
 
@@ -550,7 +406,7 @@ function updateFeedCard(card, data, initialLimit = 3) {
     headerEl.appendChild(loadMoreBtn);
   }
 
-  countEl.textContent = `${initialItems.length} of ${items.length}`;
+  countEl.textContent = `${initialItems.length} of ${items.length}${data.stale ? ' · cached' : ''}`;
 }
 
 /**
@@ -585,37 +441,12 @@ function filterItemsToLast30Days(items = []) {
 /**
  * Show error state on feed card
  */
-function showFeedError(card, error, feed) {
-  card.classList.remove('loading');
-  card.classList.add('error');
-
-  const countEl = card.querySelector('.feed-card-count');
-  const itemsEl = card.querySelector('.feed-items');
-
-  countEl.textContent = 'Error';
-  itemsEl.innerHTML = '<li class="error-message">Failed to load feed</li>';
-
-  // Track failed feed for grouping
-  const failure = {
-    key: card.dataset.feedKey || getFeedCacheKey(feed),
-    name: feed.name,
-    url: feed.url,
-    category: card.dataset.category,
-    error: error
-  };
-
-  // Avoid duplicate entries for the same feed
-  const alreadyTracked = failedFeeds.some(f => f.key === failure.key);
-  if (!alreadyTracked) {
-    failedFeeds.push(failure);
+function showFeedError(error, feed, section) {
+  const key = getFeedCacheKey(feed);
+  if (!failedFeeds.some(item => item.key === key)) {
+    failedFeeds.push({ key, name: feed.name, url: feed.url, category: section,
+      error: error?.message || 'Source unavailable' });
   }
-
-  console.error(`[Feed Error] ${card.dataset.name}:`, error);
-
-  // Immediate hide from main grid
-  card.style.display = 'none';
-
-  // Update offline section immediately
   displayOfflineFeeds();
 }
 
@@ -952,6 +783,7 @@ function navigateToNextSection() {
  * Switch to a different section
  */
 function switchSection(sectionName) {
+  clearTimeout(timelineUpdateTimer);
   // Update active states and ARIA attributes
   document.querySelectorAll('.section').forEach(s => {
     s.classList.remove('active');
@@ -971,6 +803,7 @@ function switchSection(sectionName) {
     newTab.classList.add('active');
     newTab.setAttribute('aria-selected', 'true');
     currentSection = sectionName;
+    startLazyLoadFeeds();
     
     // Reset timeline render flag for new section to ensure immediate first update
     timelineHasRendered = false;
@@ -1038,7 +871,9 @@ function renderTimelineView(section, grid) {
   const articles = allArticles;
 
   if (articles.length === 0) {
-    grid.innerHTML = '<div class="timeline-empty"><div class="timeline-empty-icon">📭</div><h3>No recent articles</h3><p>No articles from the last 30 days</p></div>';
+    const progress = feedQueue?.summary(section);
+    const loading = progress && progress.finished < progress.total;
+    grid.innerHTML = loading ? '<div class="timeline-empty"><h3>Loading posts…</h3><p>Sources appear as they respond.</p></div>' : '<div class="timeline-empty"><div class="timeline-empty-icon">📭</div><h3>No recent articles</h3><p>No articles from the last 30 days</p></div>';
     return;
   }
 

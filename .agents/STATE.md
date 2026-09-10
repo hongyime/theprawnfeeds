@@ -1,5 +1,24 @@
 # Current State
 
+Portfolio maintenance, 2026-09-10: Release prepared from clean remote baseline
+c54fa82. Category-on-demand loading preserves all 185 feeds, starts only the
+31 Blogs feeds on first open, and pauses unstarted requests while hidden.
+One browser queue survives navigation. Server fetches share a 25-second
+deadline, 2 MiB response cap, bounded response cache and in-flight reuse.
+Invalid Unicode entities no longer crash normalization. Prawn styling retains
+light/dark/system themes; final review fixed dark-mode selected-control contrast
+and the legacy Python ignore rule that excluded the new runtime helpers.
+
+Validation: 24 Node tests pass locally on Node 26. Desktop (1440px) and mobile
+(390px) browser fixtures pass, including the updated dark-mode contrast check.
+Node 22 CI, production deployment and public route/asset verification remain pending.
+All provider responses in local tests are synthetic; monthly usage savings
+are not established. No collection schedule or persistent storage is changed.
+The original checkout's recovered/untracked work and damaged historical object
+are preserved; release work uses an independent clean clone. See AUDIT.md.
+
+Historical context follows; the release checklist above is current.
+
 Task: audit and upgrade `theprawnfeeds`, starting with security triage and Flask viability.
 
 Progress:

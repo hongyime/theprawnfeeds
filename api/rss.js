@@ -2,13 +2,14 @@ const { XMLParser } = require('fast-xml-parser');
 const fs = require('node:fs');
 const path = require('node:path');
 
-// In-memory cache with 60-minute TTL
-const cache = new Map();
-const CACHE_TTL = 60 * 60 * 1000; // 60 minutes in milliseconds
-const FETCH_TIMEOUT_MS = 25000;
-const FETCH_RETRIES = 1;
-const YOUTUBE_FETCH_RETRIES = 4;
-const MAX_FEED_RESPONSE_BYTES = 2 * 1024 * 1024;
+const { FeedError, createBudget, fetchText } = require('../lib/feed-transport');
+const { FeedCache } = require('../lib/feed-cache');
+const cache = new FeedCache();
+const inflight = new Map();
+const cooldowns = new Map();
+const MAX_INFLIGHT = 16;
+const REQUEST_TIMEOUT_MS = 25000;
+const YOUTUBE_FETCH_RETRIES = 1;
 const YOUTUBE_SHORTS_PATTERN = /(^|\s)#shorts?\b|\bshorts?\b/i;
 const YOUTUBE_SHORT_DURATION_MAX_SECONDS = 180;
 const YOUTUBE_API_BASE_URL = 'https://www.googleapis.com/youtube/v3';
@@ -169,43 +170,6 @@ function validateFeedUrl(rawUrl) {
   return parsed;
 }
 
-/**
- * Read a response body with a hard byte cap before XML parsing.
- * @param {Response} response
- * @param {number} maxBytes
- * @returns {Promise<string>}
- */
-async function readResponseTextWithLimit(response, maxBytes) {
-  if (!response.body?.getReader) {
-    const text = await response.text();
-    if (Buffer.byteLength(text, 'utf8') > maxBytes) {
-      throw new Error('Feed response exceeded size limit');
-    }
-    return text;
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  const chunks = [];
-  let totalBytes = 0;
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    totalBytes += value.byteLength;
-    if (totalBytes > maxBytes) {
-      await reader.cancel();
-      throw new Error('Feed response exceeded size limit');
-    }
-
-    chunks.push(decoder.decode(value, { stream: true }));
-  }
-
-  chunks.push(decoder.decode());
-  return chunks.join('');
-}
-
 function decodeHtmlEntities(text) {
   return String(text || '')
     .replace(/&nbsp;/gi, ' ')
@@ -216,11 +180,11 @@ function decodeHtmlEntities(text) {
     .replace(/&#39;|&apos;/gi, "'")
     .replace(/&#(\d+);/g, (_, code) => {
       const value = Number.parseInt(code, 10);
-      return Number.isFinite(value) ? String.fromCodePoint(value) : _;
+      return Number.isInteger(value) && value >= 0 && value <= 0x10ffff && !(value >= 0xd800 && value <= 0xdfff) ? String.fromCodePoint(value) : _;
     })
     .replace(/&#x([\da-f]+);/gi, (_, code) => {
       const value = Number.parseInt(code, 16);
-      return Number.isFinite(value) ? String.fromCodePoint(value) : _;
+      return Number.isInteger(value) && value >= 0 && value <= 0x10ffff && !(value >= 0xd800 && value <= 0xdfff) ? String.fromCodePoint(value) : _;
     });
 }
 
@@ -298,7 +262,7 @@ function isYoutubeFeedUrl(feedUrl) {
   try {
     const parsed = new URL(feedUrl);
     const host = parsed.hostname.toLowerCase();
-    return host.includes('youtube.com') && parsed.pathname === '/feeds/videos.xml';
+    return (host === 'youtube.com' || host === 'www.youtube.com') && parsed.pathname === '/feeds/videos.xml';
   } catch {
     return false;
   }
@@ -381,53 +345,10 @@ function isYoutubeShortVideo(video = {}) {
  * @param {number} maxRetries
  * @returns {Promise<object>}
  */
-async function fetchJsonWithRetries(url, maxRetries) {
-  let lastError = null;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
-    try {
-      const response = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; RSS Reader/1.0)',
-          'Accept': 'application/json'
-        },
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        const isRetriableHttp = response.status === 429 || (response.status >= 500 && response.status <= 599);
-        if (isRetriableHttp && attempt < maxRetries) {
-          await new Promise(resolve => setTimeout(resolve, 350 * (attempt + 1)));
-          continue;
-        }
-
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      return response.json();
-    } catch (error) {
-      clearTimeout(timeoutId);
-      lastError = error;
-
-      const retriableNetworkError = error?.name === 'AbortError' || /ECONNRESET|ETIMEDOUT|EAI_AGAIN|fetch failed/i.test(error?.message || '');
-      if (retriableNetworkError && attempt < maxRetries) {
-        await new Promise(resolve => setTimeout(resolve, 350 * (attempt + 1)));
-        continue;
-      }
-
-      if (attempt < maxRetries) {
-        await new Promise(resolve => setTimeout(resolve, 350 * (attempt + 1)));
-        continue;
-      }
-    }
-  }
-
-  throw lastError || new Error('Failed to fetch JSON response');
+async function fetchJsonWithRetries(url, maxRetries, budget) {
+  const body = await fetchText(url, { budget, accept: 'application/json', retries: maxRetries });
+  try { return JSON.parse(body); }
+  catch { throw new FeedError('Invalid JSON response', 422); }
 }
 
 /**
@@ -438,13 +359,13 @@ async function fetchJsonWithRetries(url, maxRetries) {
  * @param {string} apiKey
  * @returns {Promise<object>}
  */
-async function fetchYoutubeFeedViaDataApi(channelId, limit, apiKey) {
+async function fetchYoutubeFeedViaDataApi(channelId, limit, apiKey, budget) {
   const channelsUrl = new URL(`${YOUTUBE_API_BASE_URL}/channels`);
   channelsUrl.searchParams.set('part', 'snippet,contentDetails');
   channelsUrl.searchParams.set('id', channelId);
   channelsUrl.searchParams.set('key', apiKey);
 
-  const channelsData = await fetchJsonWithRetries(channelsUrl, YOUTUBE_FETCH_RETRIES);
+  const channelsData = await fetchJsonWithRetries(channelsUrl, YOUTUBE_FETCH_RETRIES, budget);
   const channel = channelsData?.items?.[0];
   if (!channel) {
     throw new Error('YouTube Data API returned no channel data');
@@ -462,7 +383,7 @@ async function fetchYoutubeFeedViaDataApi(channelId, limit, apiKey) {
   playlistUrl.searchParams.set('maxResults', String(maxPlaylistResults));
   playlistUrl.searchParams.set('key', apiKey);
 
-  const playlistData = await fetchJsonWithRetries(playlistUrl, YOUTUBE_FETCH_RETRIES);
+  const playlistData = await fetchJsonWithRetries(playlistUrl, YOUTUBE_FETCH_RETRIES, budget);
   const playlistItems = Array.isArray(playlistData?.items) ? playlistData.items : [];
   if (playlistItems.length === 0) {
     return {
@@ -487,7 +408,7 @@ async function fetchYoutubeFeedViaDataApi(channelId, limit, apiKey) {
   videosUrl.searchParams.set('id', videoIds.join(','));
   videosUrl.searchParams.set('key', apiKey);
 
-  const videosData = await fetchJsonWithRetries(videosUrl, YOUTUBE_FETCH_RETRIES);
+  const videosData = await fetchJsonWithRetries(videosUrl, YOUTUBE_FETCH_RETRIES, budget);
   const videos = Array.isArray(videosData?.items) ? videosData.items : [];
   const videoMap = new Map(videos.map(video => [video.id, video]));
 
@@ -724,161 +645,107 @@ function parseAtom(feed, limit, options = {}) {
  * @param {number} limit - Maximum number of items
  * @returns {Promise<object>} - Parsed feed data
  */
-async function fetchFeed(feedUrl, limit) {
-  // Check cache
-  const cacheKey = `${feedUrl}:${limit}`;
-  const cached = cache.get(cacheKey);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    console.log(`[Cache Hit] ${feedUrl}`);
-    return cached.data;
+function parseFeedXml(xml, limit, isYoutube) {
+  const parser = new XMLParser({
+    ignoreAttributes: false,
+    attributeNamePrefix: '@_'
+  });
+
+  const feed = parser.parse(xml);
+  let result;
+
+  // Detect feed type and parse accordingly.
+  if (feed.rss) {
+    result = parseRss2(feed, limit);
+  } else if (feed.feed) {
+    result = parseAtom(feed, limit, { filterYoutubeShorts: isYoutube });
+  } else if (feed['rdf:RDF']) {
+    const rdf = feed['rdf:RDF'];
+    const title = rdf.channel?.title || 'Unknown Feed';
+    let items = rdf.item || [];
+    if (!Array.isArray(items)) items = [items];
+
+    const parsedItems = items.map(item => ({
+      title: stripHtml(item.title || 'No title'),
+      link: item.link || '',
+      pubDate: parseDate(getRssItemDate(item)),
+      text: stripHtml(item.description || ''),
+      thumbnail: extractThumbnail(item)
+    }));
+
+    result = { title, items: sortItemsByDateDesc(parsedItems).slice(0, limit) };
+  } else {
+    throw new FeedError('Unknown feed format', 422);
   }
-  
-  console.log(`[Fetching] ${feedUrl}`);
-  
-  let lastError = null;
+
+  return result;
+}
+
+async function loadFeed(feedUrl, limit, budget) {
   const isYoutube = isYoutubeFeedUrl(feedUrl);
-  const youtubeApiKey = process.env.YOUTUBE_API_KEY || '';
-  const useYoutubeDataApi = isUsableYoutubeApiKey(youtubeApiKey);
-  const maxRetries = isYoutube ? YOUTUBE_FETCH_RETRIES : FETCH_RETRIES;
-
-  // Prefer the official YouTube Data API path when an API key is configured.
-  // Falls back to RSS when key is absent or Data API call fails.
-  if (isYoutube && useYoutubeDataApi) {
-    const channelId = extractYoutubeChannelId(feedUrl);
-    if (channelId) {
-      try {
-        const youtubeData = await fetchYoutubeFeedViaDataApi(channelId, limit, youtubeApiKey);
-
-        cache.set(cacheKey, {
-          timestamp: Date.now(),
-          data: youtubeData
-        });
-
-        console.log(`[Parsed:YouTube Data API] ${feedUrl} - ${youtubeData.items.length} items`);
-        return youtubeData;
-      } catch (error) {
-        lastError = error;
-        console.warn(`[YouTube Data API Fallback] ${feedUrl}: ${error.message}`);
-      }
-    }
-  }
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
+  const apiKey = process.env.YOUTUBE_API_KEY || '';
+  if (isYoutube && isUsableYoutubeApiKey(apiKey)) {
     try {
-      const response = await fetch(feedUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; RSS Reader/1.0)',
-          'Accept': 'application/rss+xml, application/xml, application/atom+xml, text/xml, */*',
-          'Accept-Language': 'en-US,en;q=0.9'
-        },
-        redirect: 'manual',
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
-
-      if (response.status === 202) {
-        throw new Error('HTTP 202: Upstream returned a non-feed response');
-      }
-
-      if (!response.ok) {
-        const isRetriableHttp = response.status === 429 || (response.status >= 500 && response.status <= 599);
-        const isTransientYoutube404 = isYoutube && response.status === 404;
-
-        if ((isRetriableHttp || isTransientYoutube404) && attempt < maxRetries) {
-          await new Promise(resolve => setTimeout(resolve, 350 * (attempt + 1)));
-          continue;
-        }
-
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const xml = await readResponseTextWithLimit(response, MAX_FEED_RESPONSE_BYTES);
-
-      const parser = new XMLParser({
-        ignoreAttributes: false,
-        attributeNamePrefix: '@_'
-      });
-
-      const feed = parser.parse(xml);
-
-      let result;
-
-      // Detect feed type and parse accordingly
-      if (feed.rss) {
-        result = parseRss2(feed, limit);
-      } else if (feed.feed) {
-        result = parseAtom(feed, limit, {
-          filterYoutubeShorts: isYoutube
-        });
-      } else if (feed['rdf:RDF']) {
-        // RSS 1.0 / RDF format
-        const rdf = feed['rdf:RDF'];
-        const title = rdf.channel?.title || 'Unknown Feed';
-        let items = rdf.item || [];
-        if (!Array.isArray(items)) items = [items];
-
-        const parsedItems = items.map(item => ({
-          title: stripHtml(item.title || 'No title'),
-          link: item.link || '',
-          pubDate: parseDate(getRssItemDate(item)),
-          text: stripHtml(item.description || ''),
-          thumbnail: extractThumbnail(item)
-        }));
-
-        result = {
-          title,
-          items: sortItemsByDateDesc(parsedItems).slice(0, limit)
-        };
-      } else {
-        throw new Error('Unknown feed format');
-      }
-
-      // Update cache
-      cache.set(cacheKey, {
-        timestamp: Date.now(),
-        data: result
-      });
-
-      console.log(`[Parsed] ${feedUrl} - ${result.items.length} items`);
-      return result;
+      return await fetchYoutubeFeedViaDataApi(extractYoutubeChannelId(feedUrl), limit, apiKey, budget);
     } catch (error) {
-      clearTimeout(timeoutId);
-      lastError = error;
-
-      const retriableNetworkError = error?.name === 'AbortError' || /ECONNRESET|ETIMEDOUT|EAI_AGAIN|fetch failed/i.test(error?.message || '');
-      if (retriableNetworkError && attempt < maxRetries) {
-        await new Promise(resolve => setTimeout(resolve, 350 * (attempt + 1)));
-        continue;
-      }
-
-      if (attempt < maxRetries) {
-        await new Promise(resolve => setTimeout(resolve, 350 * (attempt + 1)));
-        continue;
-      }
-
-      break;
+      budget.signal.throwIfAborted();
+      // Respect rate limits and size bounds instead of immediately trying another route.
+      if (error.status === 429 || error.status === 413) throw error;
+      console.warn('[YouTube Data API] Using RSS fallback after unavailable response');
     }
   }
+  const xml = await fetchText(feedUrl, {
+    budget, retries: 1, retry404: isYoutube,
+    accept: 'application/rss+xml, application/xml, application/atom+xml, text/xml, */*'
+  });
+  return parseFeedXml(xml, limit, isYoutube);
+}
 
-  // Last-resort resilience: if we have stale cached data, return it instead of
-  // failing hard. This prevents temporary upstream outages from marking feeds
-  // as offline immediately.
-  if (cached?.data?.items?.length) {
-    console.warn(`[Stale Cache Fallback] ${feedUrl}`);
-    return cached.data;
+function cachedFallback(cached) {
+  return cached ? { ...cached.data, stale: true } : null;
+}
+
+async function fetchFeed(feedUrl, limit) {
+  const key = `${feedUrl}:${limit}`;
+  const cached = cache.get(key);
+  if (cached?.fresh) return cached.data;
+  const cooldown = cooldowns.get(feedUrl);
+  if (cooldown && cooldown.until > Date.now()) {
+    if (cached) return cachedFallback(cached);
+    throw new FeedError('Feed rate limited by upstream', 429, Math.ceil((cooldown.until - Date.now()) / 1000));
   }
-
-  throw lastError || new Error('Failed to fetch feed');
+  cooldowns.delete(feedUrl);
+  if (inflight.has(key)) return inflight.get(key);
+  if (inflight.size >= MAX_INFLIGHT) {
+    if (cached) return cachedFallback(cached);
+    throw new FeedError('Feed service is busy; try again shortly', 503, 5);
+  }
+  const budget = createBudget(REQUEST_TIMEOUT_MS);
+  const pending = budget.run(() => loadFeed(feedUrl, limit, budget))
+    .then(result => {
+      const data = { ...result, stale: false, fetched_at: new Date().toISOString() };
+      cache.set(key, data);
+      return data;
+    })
+    .catch(error => {
+      if (error.status === 429) {
+        if (cooldowns.size >= 256) cooldowns.delete(cooldowns.keys().next().value);
+        cooldowns.set(feedUrl, { until: Date.now() + (error.retryAfter || 60) * 1000 });
+      }
+      const fallback = cache.get(key);
+      if (fallback) return cachedFallback(fallback);
+      throw error;
+    })
+    .finally(() => { budget.close(); inflight.delete(key); });
+  inflight.set(key, pending);
+  return pending;
 }
 
 /**
  * Vercel serverless function handler
  */
 module.exports = async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -894,7 +761,7 @@ module.exports = async (req, res) => {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   
-  const { feedUrl, limit = '5' } = req.query;
+  const { feedUrl, limit = '5' } = req.query || {};
   
   // Validate feedUrl parameter + SSRF safety
   let validatedUrl;
@@ -912,24 +779,29 @@ module.exports = async (req, res) => {
     const data = await fetchFeed(validatedUrl, parsedLimit);
     
     // Set cache headers
-    res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=600');
+    res.setHeader('Cache-Control', data.stale ? 'public, max-age=30, s-maxage=60' : 'public, max-age=300, s-maxage=600');
     
     return res.status(200).json(data);
   } catch (error) {
-    console.error(`[Error] ${validatedUrl}:`, error.message);
+    console.error('[RSS request failed]', { status: error.status || 502 });
+    if (error.retryAfter) res.setHeader('Retry-After', String(error.retryAfter));
     
     // Return appropriate error status
-    if (error.message.includes('HTTP 404')) {
-      return res.status(404).json({ error: 'Feed not found' });
-    } else if (error.message.includes('HTTP 429')) {
+    if (error.status === 504) {
+      return res.status(504).json({ error: 'Feed request timed out' });
+    } else if (error.status === 503 && error.retryAfter) {
+      return res.status(503).json({ error: 'Feed service is busy; try again shortly' });
+    } else if (error.status === 429 || error.message.includes('HTTP 429')) {
       return res.status(429).json({ error: 'Feed rate limited by upstream' });
+    } else if (error.message.includes('HTTP 404')) {
+      return res.status(404).json({ error: 'Feed not found' });
     } else if (error.message.includes('HTTP 202') || error.message.includes('HTTP 403')) {
       return res.status(503).json({ error: 'Feed blocked by upstream' });
     } else if (error.message.includes('timeout') || error.name === 'AbortError') {
       return res.status(504).json({ error: 'Feed request timed out' });
     } else if (error.message.includes('size limit')) {
       return res.status(413).json({ error: 'Feed response too large' });
-    } else if (error.message.includes('Unknown feed format')) {
+    } else if (error.status === 422 || error.message.includes('Unknown feed format')) {
       return res.status(422).json({ error: 'Unable to parse feed format' });
     }
     

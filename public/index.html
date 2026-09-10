@@ -8,7 +8,7 @@
   <title>The Prawn Feeds</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
   <!-- Favicon -->
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
@@ -25,6 +25,8 @@
       <p>Catching fresh content...</p>
     </div>
   </div>
+
+  <div id="config-error" class="config-error" role="alert" hidden>Feed catalog could not be loaded. <button id="retry-config" type="button">Try again</button></div>
 
   <header class="header">
     <div class="header-content">
@@ -161,12 +163,14 @@
 
   <footer class="footer">
     <p>Prawn Feeds &copy; <span id="year"></span></p>
+    <a href="https://theprawnprojects.vercel.app">All Prawn projects</a>
   </footer>
 
   <button id="view-fab" class="view-fab" type="button" aria-label="Switch to card view" title="Cards view">
     📇
   </button>
 
+  <script src="/feed-queue.js"></script>
   <script src="/app.js"></script>
 </body>
 
