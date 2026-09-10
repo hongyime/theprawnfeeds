@@ -91,3 +91,34 @@ The hosted browser fixture failed in Playwright's `wait_for_function` with a
 CSP EvalError, rather than an app exception. Replace that test helper with
 bounded protocol evaluations and serve the production CSP in local fixtures
 so CI covers this difference. Keep the application's security headers intact.
+
+The main-branch repeat of Reader checks for 9b8fd56 failed on an immediate
+computed-color assertion. A controlled probe using the actual stylesheet and
+reduced motion measured rgb(82, 82, 82) immediately after selecting dark mode,
+then rgb(189, 189, 189) after two rendered frames. Use Playwright's bounded CSS
+assertions to wait for that rendered state. The production font assertion also
+ran after DOMContentLoaded while font discovery was still in progress. A probe
+waiting for page load and document.fonts.ready observed successful font CSS and
+WOFF2 responses, loaded Space Grotesk 400/500/700 faces, and no page/network
+errors. Wait for stylesheet loading before asserting fonts; these probes used
+synthetic RSS responses and did not fetch provider content.
+
+Waiting for page load alone did not make the full font fixture reliable.
+FontFaceSet.ready covers fonts currently used by layout, rather than every
+declared weight; the fixture checks weight 500 even when narrow navigation is
+hidden. Explicitly load the declared face before checking it. The focused
+probe confirmed that FontFaceSet.load resolves a matching Space Grotesk face.
+Reference: https://developer.mozilla.org/en-US/docs/Web/API/Document/fonts.
+
+After fonts passed, the production mobile fixture hit its 30-second whole-
+category wait while YouTube was still progressing: 106 of 124 feeds finished,
+six active requests, zero failed feeds and no page errors. Keep the app's
+per-request deadlines unchanged. The fixture now allows at most 120 seconds
+for a complete category while failing after 15 seconds without observed
+progress; it records category fixture durations. It still requires all 185
+unique sources to complete and verifies the single six-request queue.
+
+Two bounded live RSS checks complemented the synthetic tests. The configured
+Guanjie feed returned 503 with no-store; its availability remains open.
+Hackread returned 200 with one normalized item, fresh-result metadata and
+public caching. No YouTube Data API calls or collection workflows were run.

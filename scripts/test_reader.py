@@ -9,7 +9,7 @@ import json
 import subprocess
 import tempfile
 import time
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, expect
 
 parser=argparse.ArgumentParser()
 parser.add_argument('--report-dir')
@@ -46,6 +46,20 @@ try:
         while not page.evaluate(expression,arg):
           assert time.monotonic()<deadline, 'Reader state did not settle: '+expression
           page.wait_for_timeout(25)
+      category_seconds={}
+      def wait_for_category(section):
+        started=time.monotonic();last_progress=started;last_finished=-1
+        while True:
+          progress=page.evaluate('(section)=>feedQueue.summary(section)',section)
+          now=time.monotonic()
+          assert now-started<120, 'Category exceeded its fixture batch budget: '+section
+          if progress['finished']==progress['total']:
+            category_seconds[section]=round(now-started,3)
+            return
+          if progress['finished']!=last_finished:
+            last_finished=progress['finished'];last_progress=now
+          assert now-last_progress<15, 'Category stopped making progress: '+section
+          page.wait_for_timeout(25)
       errors=[];requests=[];held=[];hold=True;external=[]
       page.on('pageerror',lambda e:errors.append(str(e)))
       def fulfill(route):
@@ -77,8 +91,11 @@ try:
           else:fulfill(route)
         else:route.continue_()
       page.route('**/*',route_request)
-      page.goto(base,wait_until='domcontentloaded')
+      page.goto(base,wait_until='load')
       if args.base_url:
+        # ready only covers currently used faces; narrow layouts may not use 500 yet.
+        loaded_faces=page.evaluate("""async () => (await document.fonts.load('500 16px "Space Grotesk"')).length""")
+        assert loaded_faces>0, 'Space Grotesk has no declared matching font face'
         page.evaluate('document.fonts.ready')
         assert page.evaluate('document.fonts.check(\'500 16px "Space Grotesk"\')'), 'Production font did not load'
         assert page.evaluate("() => [...document.fonts].some(face=>face.family.includes('Space Grotesk') && face.status==='loaded')"), 'No loaded Space Grotesk font face'
@@ -132,11 +149,11 @@ try:
         page.locator('#mobile-theme-btn').click();page.locator('.mobile-theme-option[data-theme="dark"]').click()
       else:page.locator('.theme-btn[data-theme="dark"]').click()
       assert page.locator('html').get_attribute('data-theme')=='dark'
-      assert page.locator('#live-loading-status').evaluate('el=>getComputedStyle(el).color')=='rgb(189, 189, 189)'
+      expect(page.locator('#live-loading-status')).to_have_css('color','rgb(189, 189, 189)')
       # The active category and load-more controls must stay legible in dark mode.
       for selector in ['.header-tab.active', '.mobile-nav-item.active', '.mobile-theme-option.active', '.load-more-btn']:
-        colors=page.locator(selector).first.evaluate('(el)=>({fg:getComputedStyle(el).color,bg:getComputedStyle(el).backgroundColor})')
-        assert colors=={'fg':'rgb(0, 0, 0)','bg':'rgb(255, 255, 255)'}, (selector,colors)
+        expect(page.locator(selector).first).to_have_css('color','rgb(0, 0, 0)')
+        expect(page.locator(selector).first).to_have_css('background-color','rgb(255, 255, 255)')
       page.locator('#view-fab').click()
       assert page.locator('#blogs-grid .timeline-item').count()>0
       assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'Horizontal page overflow'
@@ -144,7 +161,7 @@ try:
       for section in ['substack','subreddits','youtube']:
         navigate(section)
         try:
-          wait_for_state('(section)=>feedQueue.summary(section).finished===feedQueue.summary(section).total',arg=section)
+          wait_for_category(section)
         except Exception:
           print(json.dumps({'failed_viewport':width,'requested_section':section,'requests':len(requests),'page_errors':errors,
             'queue':page.evaluate('({current:currentSection,active:feedQueue.active,section:feedQueue.section,visible:feedQueue.visible,summary:feedQueue.summary(currentSection)})')}),flush=True)
@@ -154,6 +171,7 @@ try:
       reports.append({'viewport':width,'errors':errors,'catalog_feeds':185,'first_category_feeds':31,
          'requests_before_visiting_remaining_categories':44,'requests_after_visiting_all_categories':len(requests),
          'navigation_during_loading':'passed','hidden_queue_pause':'passed','cards_timeline_modal_theme':'passed',
+         'category_fixture_seconds':category_seconds,
          'horizontal_overflow':False,'provider_requests':0,
          'font_downloads':'Space Grotesk verified' if args.base_url else 'stubbed; fallback font used in fixtures'})
       page.close()

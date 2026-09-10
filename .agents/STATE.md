@@ -14,14 +14,21 @@ fixtures in hosted Node 22 CI; all six main workflows passed. Its Vercel
 deployment is dpl_6wMCXQhsR9VnGGfefBQybDsXwt5n. Domain assignment had been
 disabled; explicit promotion restored both public domains and automatic
 assignment. Follow-up fixes the existing `/reader` clean-URL rewrite and
-makes browser fixtures run with the unchanged production CSP. Verify the
-follow-up preview and both public domains, including `/reader`, before closure.
+makes browser fixtures run with the unchanged production CSP. Release 9b8fd56
+is deployed as dpl_4vgt51bgLTNx5rpdJjAWhyiW3gZo; both public domains passed
+16 HTTP checks including `/reader`, exact assets, catalog and URL rejection.
+Its branch CI passed, but the main repeat exposed a theme-assertion timing race.
+Controlled probes confirmed font loading and theme settlement; the final test
+update waits for those states. Complete hosted and production browser checks
+with that update before closing this release.
 All provider responses in local tests are synthetic; monthly usage savings
 are not established. No collection schedule or persistent storage is changed.
 The original checkout's eleven recovered/untracked files are preserved. One
-missing tree was restored from the verified clean clone; a full object download
-repaired most remaining history gaps, with three objects still under review.
-Release work uses an independent clean clone. See AUDIT.md.
+missing tree and three remaining historical blobs were restored from the
+verified clean clone after a full object download. Full git fsck now passes
+with no missing objects or broken links; unreachable history is retained.
+The original checkout fast-forwarded to 9b8fd56 with all eleven recovered
+files unchanged. See AUDIT.md.
 
 Historical context follows; the release checklist above is current.
 
