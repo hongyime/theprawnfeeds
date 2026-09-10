@@ -18,9 +18,12 @@ makes browser fixtures run with the unchanged production CSP. Release 9b8fd56
 is deployed as dpl_4vgt51bgLTNx5rpdJjAWhyiW3gZo; both public domains passed
 16 HTTP checks including `/reader`, exact assets, catalog and URL rejection.
 Its branch CI passed, but the main repeat exposed a theme-assertion timing race.
-Controlled probes confirmed font loading and theme settlement; the final test
-update waits for those states. Complete hosted and production browser checks
-with that update before closing this release.
+The corrected browser fixture waits for rendered colors, loads its declared
+font face explicitly and checks steady progress through large categories.
+Production desktop/mobile fixtures now pass for all 185 sources, navigation,
+hidden-tab suspension, cards/timeline, modal, themes and catalog failures under
+the unchanged CSP. A live Hackread request returned one normalized fresh item;
+the configured Guanjie feed returned 503 and remains an availability follow-up.
 All provider responses in local tests are synthetic; monthly usage savings
 are not established. No collection schedule or persistent storage is changed.
 The original checkout's eleven recovered/untracked files are preserved. One
@@ -29,6 +32,10 @@ verified clean clone after a full object download. Full git fsck now passes
 with no missing objects or broken links; unreachable history is retained.
 The original checkout fast-forwarded to 9b8fd56 with all eleven recovered
 files unchanged. See AUDIT.md.
+
+Remaining portfolio work: wider provider availability, large-category rendering
+and cache-age feedback, monthly usage measurements and the other applications'
+queued fixes. These instance-level controls do not guarantee a free-tier budget.
 
 Historical context follows; the release checklist above is current.
 
