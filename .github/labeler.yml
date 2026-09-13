@@ -1,8 +1,11 @@
 documentation:
-  - '**/*.md'
+  - changed-files:
+      - any-glob-to-any-file: '**/*.md'
 
 frontend:
-  - 'src/frontend/**'
+  - changed-files:
+      - any-glob-to-any-file: ['public/**', 'src/frontend/**']
 
 backend:
-  - 'src/backend/**'
+  - changed-files:
+      - any-glob-to-any-file: ['api/**', 'lib/**', 'src/backend/**']

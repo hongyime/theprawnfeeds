@@ -148,3 +148,15 @@ hidden-tab queue suspension, themes/modal/navigation and catalogue failure,
 and makes no real provider request. Hosted checks and production verification
 are next. Reader CI no longer duplicates branch-push and PR runs; PR and main
 checks retain the full suite and include the new browser coverage.
+
+
+Hosted validation caught three Bandit notes in the new fixture's unnecessary
+Node subprocess and an existing Labeler failure caused by legacy string-list
+rules. The new focused browser suite now uses 31 synthetic sources directly;
+the separate existing reader suite still verifies every canonical source.
+Both desktop/mobile runs pass and Bandit reports zero findings for the new
+fixture without suppressions. Labeler rules now use changed-files match objects
+and include this repository's public, api and lib paths. The action reads the
+PR merge-ref configuration through its existing API path; no privileged code
+checkout or event/permission change is needed. Reference:
+https://github.com/actions/labeler/tree/v7. Recheck hosted results on the new head.

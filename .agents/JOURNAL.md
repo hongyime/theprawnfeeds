@@ -9,3 +9,5 @@
 - 2026-09-10: Runtime follow-up 9b8fd56 passed 16 public HTTP checks; corrected desktop/mobile production fixtures exercised all 185 sources with synthetic RSS responses and actual font loading. A separate live Hackread read normalized successfully; Guanjie returned 503. Full Git object validation now passes after restoring verified missing objects, and fast-forward synchronization preserved all eleven recovered files. Monthly savings and broader provider availability remain unverified.
 
 2026-09-13: Prefer one explicit failed-source retry over reloading a category; retain server cooldowns, queue limits and hidden-tab suspension. Show source check timestamps without automatic feed polling, and bound initial timeline DOM while preserving all loaded articles through explicit expansion.
+
+2026-09-13: Keep new recovery fixtures self-contained with synthetic catalogue data; retain the full canonical-catalogue suite separately. Repair legacy Labeler configuration using the installed action format and actual repository paths. Do not bypass failed checks or suppress scanner rules.

@@ -4,7 +4,6 @@ from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
-import subprocess
 import unittest
 from urllib.parse import parse_qs, urlparse
 
@@ -13,7 +12,11 @@ from playwright.async_api import async_playwright, expect
 ROOT = Path(__file__).resolve().parents[1]
 WEB = Path(os.environ.get('FEEDS_WEB_ROOT', ROOT / 'public'))
 BASE = os.environ.get('FEEDS_BROWSER_URL', 'https://feeds.test').rstrip('/')
-CATALOG = json.loads(subprocess.check_output(['node', '-e', "require('./api/feeds')({method:'GET'},{setHeader(){},status(){return this},json(x){process.stdout.write(JSON.stringify(x))}})"], cwd=ROOT, text=True))
+# The existing test_reader.py checks all 185 canonical sources. This suite uses
+# a separate 31-source catalogue to isolate rendering and recovery behavior.
+CATALOG = {'blogs': [{'name': f'Fixture source {index}', 'url': f'https://feeds.invalid/{index}', 'limit': 3}
+                     for index in range(31)],
+           'news': [], 'substack': [], 'subreddits': [], 'youtube': []}
 FEED_IDS = {feed['url']: f'{section}-{index}' for section, feeds in CATALOG.items() for index, feed in enumerate(feeds)}
 SECURITY = {x['key']: x['value'] for x in json.loads((ROOT / 'vercel.json').read_text())['headers'][0]['headers']}
 
