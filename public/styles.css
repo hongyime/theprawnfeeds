@@ -1607,6 +1607,14 @@ button:focus-visible, a:focus-visible, [role="button"]:focus-visible {
   outline: 3px solid var(--text-primary); outline-offset: 4px;
 }
 .footer a { color: var(--text-primary); text-underline-offset: 4px; }
+.feed-freshness { margin: 16px; color: var(--text-muted); font-size: 12px; line-height: 1.6; }
+.timeline-paging { padding: 16px; text-align: center; color: var(--text-secondary); }
+.timeline-more-btn, .retry-feed-btn {
+  font: inherit; color: var(--text-on-accent); background: var(--accent-primary);
+  border: 2px solid var(--border-color); border-radius: 0; padding: 10px 14px;
+  margin-top: 8px; cursor: pointer; min-height: 44px;
+}
+.retry-feed-btn:disabled { cursor: default; color: var(--text-muted); background: var(--bg-secondary); }
 .config-error { margin: 16px; padding: 16px; border: 3px solid var(--border-color); }
 .config-error button { font: inherit; padding: 6px 12px; margin-left: 12px; }
 @media (prefers-reduced-motion: reduce) {

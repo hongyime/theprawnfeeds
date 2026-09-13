@@ -34,3 +34,19 @@ test('failed requests release slots and are reported without an automatic retry 
   assert.equal(queue.summary('blogs').failed,1);queue.setView('blogs',false);
   for(const p of pending.splice(0))p.resolve();await tick();
 });
+
+test('manual retries honor cooldowns, share the queue and reject double clicks', async () => {
+  const {queue,started,pending}=fixture();queue.setView('blogs');await tick();
+  const first=queue.entries[0];const error=Object.assign(new Error('limited'),{retryAt:120000});
+  pending.shift().reject(error);await tick();queue.setView('blogs',false);
+  for(const item of pending.splice(0))item.resolve();await tick();
+  const before=started.length;
+  assert.equal(queue.retry(first,119999),false);
+  assert.equal(queue.retry(first,120000),true);
+  assert.equal(queue.retry(first,120000),false);
+  await tick();assert.equal(started.length,before,'Hidden tabs do not start retry work');
+  queue.setView('blogs',true);await tick();assert.equal(started.filter(e=>e===first).length,2);
+  assert.ok(queue.active<=2);
+  for(const item of pending.splice(0))item.resolve();await tick();
+  assert.equal(first.status,'success');assert.equal(queue.retry(first,200000),false);
+});

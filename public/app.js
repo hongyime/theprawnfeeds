@@ -9,6 +9,8 @@ const API_ENDPOINT = '/api/rss';
 const EXTENDED_FETCH_LIMIT = 20; // Balanced for reliability on mobile while still supporting modal loading
 const MODAL_LOAD_INCREMENT = 10;
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
+const TIMELINE_PAGE_SIZE = 60;
+const timelineVisibleCounts = new Map();
 const SAFE_PROTOCOLS = new Set(['http:', 'https:']);
 
 // State
@@ -21,6 +23,7 @@ const feedDataCache = new Map();
 let timelineUpdateTimer = null;
 let timelineHasRendered = false;
 let liveLoadingHideTimer = null;
+let retryAvailabilityTimer = null;
 
 // View state per section (timeline or cards)
 const sectionViewState = {
@@ -175,13 +178,21 @@ function setupSections() {
 
 function onFeedProgress(entry) {
   if (entry.status === 'error') showFeedError(entry.error, entry.feed, entry.section);
+  else displayOfflineFeeds();
   updateLiveLoadingStatus();
+  updateFeedFreshness();
   if (entry.section !== currentSection || document.hidden) return;
   if (sectionViewState[currentSection] === 'cards') {
     const grid = document.getElementById(`${currentSection}-grid`);
     const key = getFeedCacheKey(entry.feed);
     const card = [...grid.querySelectorAll('.feed-card')].find(item => item.dataset.feedKey === key);
-    if (entry.status === 'success' && card) updateFeedCard(card, entry.value, entry.feed.limit);
+    if (entry.status === 'success' && !card) {
+      // A recovered feed has no card: insert it without rebuilding other cards.
+      grid.querySelector('.timeline-empty')?.remove();
+      const recovered = createFeedCard(entry.feed.name, entry.section, entry.feed.url);
+      grid.appendChild(recovered);
+      updateFeedCard(recovered, entry.value, entry.feed.limit);
+    } else if (entry.status === 'success' && card) updateFeedCard(card, entry.value, entry.feed.limit);
     else if (card) card.remove();
     if (grid.children.length === 0) renderSectionView(currentSection);
     sortFeedsByRecencyInGrid(grid);
@@ -239,8 +250,14 @@ async function fetchFeed(feed) {
     const url = `${API_ENDPOINT}?feedUrl=${encodeURIComponent(feed.url)}&limit=${EXTENDED_FETCH_LIMIT}`;
     const response = await fetch(url, { signal: controller.signal });
     if (!response.ok) {
-      throw new Error(response.status === 429 ? 'Source is rate limited; try again later' :
+      const error = new Error(response.status === 429 ? 'Source is rate limited; try again later' :
         response.status === 504 ? 'Source took too long to respond' : `Source unavailable (HTTP ${response.status})`);
+      const retryAfter = response.headers.get('Retry-After');
+      const seconds = /^\d+$/.test(retryAfter || '') ? Number(retryAfter) : NaN;
+      const retryAt = Number.isFinite(seconds) ? Date.now() + seconds * 1000 : Date.parse(retryAfter || '');
+      error.retryAt = Number.isFinite(retryAt) ? Math.max(Date.now(), retryAt) :
+        Date.now() + (response.status === 429 ? 60000 : 5000);
+      throw error;
     }
     const data = await response.json();
     if (!data || !Array.isArray(data.items)) throw new Error('Invalid feed response');
@@ -249,7 +266,10 @@ async function fetchFeed(feed) {
     if (failedIndex !== -1) failedFeeds.splice(failedIndex, 1);
     return data;
   } catch (error) {
-    if (error.name === 'AbortError') throw new Error('Source took too long to respond');
+    if (error.name === 'AbortError') {
+      throw Object.assign(new Error('Source took too long to respond'), { retryAt: Date.now() + 5000 });
+    }
+    if (!Number.isFinite(error.retryAt)) error.retryAt = Date.now() + 5000;
     throw error;
   } finally { clearTimeout(timer); }
 }
@@ -443,10 +463,11 @@ function filterItemsToLast30Days(items = []) {
  */
 function showFeedError(error, feed, section) {
   const key = getFeedCacheKey(feed);
-  if (!failedFeeds.some(item => item.key === key)) {
-    failedFeeds.push({ key, name: feed.name, url: feed.url, category: section,
-      error: error?.message || 'Source unavailable' });
-  }
+  const details = { key, name: feed.name, url: feed.url, category: section,
+    error: error?.message || 'Source unavailable', retryAt: error?.retryAt || Date.now() + 5000 };
+  const existing = failedFeeds.find(item => item.key === key);
+  if (existing) Object.assign(existing, details);
+  else failedFeeds.push(details);
   displayOfflineFeeds();
 }
 
@@ -842,6 +863,7 @@ function updateTabIndicator(section) {
 function renderSectionView(section) {
   const grid = document.getElementById(`${section}-grid`);
   if (!grid) return;
+  updateFeedFreshness();
 
   const viewMode = sectionViewState[section];
 
@@ -868,7 +890,8 @@ function renderTimelineView(section, grid) {
 
   // Get timeline articles (last 30 days, sorted chronologically)
   const allArticles = getTimelineArticles(feeds);
-  const articles = allArticles;
+  const visibleCount = timelineVisibleCounts.get(section) || TIMELINE_PAGE_SIZE;
+  const articles = allArticles.slice(0, visibleCount);
 
   if (articles.length === 0) {
     const progress = feedQueue?.summary(section);
@@ -912,6 +935,41 @@ function renderTimelineView(section, grid) {
   `;
 
   grid.innerHTML = timelineHTML;
+  const paging = document.createElement('div');
+  paging.className = 'timeline-paging';
+  const count = document.createElement('p');
+  count.textContent = `Showing ${articles.length} of ${allArticles.length} loaded articles`;
+  paging.appendChild(count);
+  if (articles.length < allArticles.length) {
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'timeline-more-btn';
+    more.textContent = `Show ${Math.min(TIMELINE_PAGE_SIZE, allArticles.length - articles.length)} more`;
+    more.addEventListener('click', () => {
+      const restoreFocus = document.activeElement === more;
+      timelineVisibleCounts.set(section, visibleCount + TIMELINE_PAGE_SIZE);
+      renderSectionView(section);
+      if (restoreFocus) grid.querySelectorAll('.timeline-item-link')[articles.length]?.focus({ preventScroll: true });
+    });
+    paging.appendChild(more);
+  }
+  grid.appendChild(paging);
+}
+
+/** Show the age of the loaded snapshot in both views without polling providers. */
+function updateFeedFreshness() {
+  const label = document.getElementById('feed-freshness');
+  if (!label) return;
+  const loaded = (getSectionFeeds(currentSection) || [])
+    .map(feed => feedDataCache.get(getFeedCacheKey(feed))).filter(Boolean);
+  const dates = loaded.map(data => Date.parse(data.fetched_at)).filter(Number.isFinite);
+  label.hidden = loaded.length === 0;
+  const cached = loaded.filter(data => data.stale).length;
+  const oldest = dates.length ? new Date(Math.min(...dates)) : null;
+  label.dataset.oldestCheck = oldest ? loaded.find(data => Date.parse(data.fetched_at) === oldest.getTime()).fetched_at : '';
+  label.textContent = `${loaded.length} sources loaded${cached ? ` · ${cached} cached fallback${cached === 1 ? '' : 's'}` : ''}. ` +
+    (oldest ? `Oldest source check: ${oldest.toLocaleString()}. ` : 'Source check time unavailable. ') +
+    'Reload the page to check for updates.';
 }
 
 /**
@@ -1252,6 +1310,7 @@ function createFeedItemHTML(item, index) {
  * Filter offline feeds to show only those relevant to current section
  */
 function filterOfflineFeeds(sectionName) {
+  clearTimeout(retryAvailabilityTimer);
   const offlineGrid = document.getElementById('offline-grid');
   if (!offlineGrid) return;
 
@@ -1283,6 +1342,12 @@ function filterOfflineFeeds(sectionName) {
 
   offlineGrid.innerHTML = relevantFeeds.map(feed => {
     const sourceUrl = getSiteUrl(feed.name || '', feed.category, feed.url || '');
+    const entry = feedQueue.entries.find(item => getFeedCacheKey(item.feed) === feed.key);
+    const waiting = entry?.status !== 'error';
+    const cooling = feed.retryAt > Date.now();
+    const retryDate = new Date(feed.retryAt);
+    const retryLabel = waiting ? 'Retry queued…' : cooling ?
+      `Retry after ${Number.isFinite(retryDate.getTime()) ? retryDate.toLocaleTimeString() : 'the source cooldown'}` : 'Retry';
     return `
     <div class="feed-card error offline-card">
       <div class="feed-card-header">
@@ -1295,10 +1360,27 @@ function filterOfflineFeeds(sectionName) {
         <li class="error-message">Failed to load feed</li>
         <li class="error-message" style="font-size: 11px; color: var(--text-muted);">Category: ${feed.category}</li>
         <li class="error-message" style="font-size: 11px; color: var(--text-tertiary);">${escapeHtml(feed.error)}</li>
+        <li><button type="button" class="retry-feed-btn" data-feed-key="${escapeHtml(feed.key)}" ${waiting || cooling ? 'disabled' : ''}>${escapeHtml(retryLabel)}</button></li>
       </ul>
     </div>
   `;
   }).join('');
+
+  offlineGrid.querySelectorAll('.retry-feed-btn').forEach(button => {
+    button.addEventListener('click', () => {
+      const entry = feedQueue.entries.find(item => getFeedCacheKey(item.feed) === button.dataset.feedKey);
+      if (feedQueue.retry(entry)) {
+        displayOfflineFeeds();
+        updateLiveLoadingStatus();
+      }
+    });
+  });
+  const nextReady = relevantFeeds.map(feed => feed.retryAt).filter(at => at > Date.now());
+  if (nextReady.length) {
+    // This timer only enables the manual button; it never fetches a feed.
+    retryAvailabilityTimer = setTimeout(() => filterOfflineFeeds(currentSection),
+      Math.min(2147483647, Math.max(1, Math.min(...nextReady) - Date.now())));
+  }
 
   offlineSection.style.display = 'block';
 }
