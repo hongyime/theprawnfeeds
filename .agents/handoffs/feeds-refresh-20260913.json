@@ -1,0 +1,39 @@
+{
+  "at": "2026-09-13T01:02:40.303577+00:00",
+  "base_head": "d4413e2fa01ff1f3c538af43c4b65c1fbf1d2e38",
+  "stage": "validating",
+  "tasks": [
+    {
+      "id": "map_refresh_and_render_contracts",
+      "done": true
+    },
+    {
+      "id": "reproduce_cache_recovery_and_render_gaps",
+      "done": true
+    },
+    {
+      "id": "implement_verified_request_and_ui_fixes",
+      "done": true
+    },
+    {
+      "id": "verify_hosted_checks_and_production",
+      "done": false
+    },
+    {
+      "id": "preserve_data_and_publish_report",
+      "done": false
+    }
+  ],
+  "portfolio_complete": false,
+  "constraints": [
+    "Preserve all configured feeds, recovered snapshots and local environment files.",
+    "Use synthetic provider data for regression tests; no collection or database writes.",
+    "Retain category loading, shared queue limits, request deadlines, response caps and allowlist protections."
+  ],
+  "verified_baseline": {
+    "browser_failures": 3,
+    "queue_failures": 1,
+    "initial_timeline_articles": 620,
+    "provider_requests": 0
+  }
+}

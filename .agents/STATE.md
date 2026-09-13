@@ -63,3 +63,7 @@ Progress:
 
 Next steps:
 - Run feed list/check/smoke commands and report current feed inventory.
+
+2026-09-13 continuation: investigate cache-age visibility, failed-feed recovery and large-category rendering from the current deployed source. Five tasks are recorded in .agents/handoffs/feeds-refresh-20260913.json. Preserve all 185 configured feeds, recovered local snapshots and environment files. Use synthetic browser/provider fixtures; no provider collection or database writes for validation.
+
+2026-09-13 implementation: three synthetic browser regressions and one queue regression reproduced missing retry, hidden snapshot age and unbounded initial timeline rendering. Manual per-feed retry now uses the existing six-request queue, honors source Retry-After values and avoids repeat clicks/hidden-tab starts. Snapshot timestamps and stale fallback counts are visible in both views. Timeline starts with 60 articles and preserves every loaded article through explicit expansion, including keyboard focus. Initial fixture DOM changes from 620 articles to 60; no provider polling, collection schedule, API cache policy or persistent data change. Node 22 and desktop/mobile reader checks are running.

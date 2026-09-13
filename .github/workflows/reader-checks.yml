@@ -2,10 +2,10 @@ name: Reader checks
 
 on:
   push:
-    branches: [main, 'maintenance/feeds-*']
-    paths: ['api/**', 'lib/**', 'public/**', 'test/**', 'scripts/test_reader.py', 'scripts/feeds.mjs', 'feeds.json', 'package*.json', 'vercel.json', '.github/workflows/reader-checks.yml']
+    branches: [main]
+    paths: ['api/**', 'lib/**', 'public/**', 'test/**', 'scripts/test_*.py', 'scripts/feeds.mjs', 'feeds.json', 'package*.json', 'vercel.json', '.github/workflows/reader-checks.yml']
   pull_request:
-    paths: ['api/**', 'lib/**', 'public/**', 'test/**', 'scripts/test_reader.py', 'scripts/feeds.mjs', 'feeds.json', 'package*.json', 'vercel.json', '.github/workflows/reader-checks.yml']
+    paths: ['api/**', 'lib/**', 'public/**', 'test/**', 'scripts/test_*.py', 'scripts/feeds.mjs', 'feeds.json', 'package*.json', 'vercel.json', '.github/workflows/reader-checks.yml']
   workflow_dispatch:
 
 permissions:
@@ -34,3 +34,7 @@ jobs:
       - run: python -m playwright install --with-deps chromium
       - name: Verify reader workflows with synthetic feed responses
         run: python scripts/test_reader.py --report-dir "$RUNNER_TEMP/feeds-browser"
+      - name: Verify snapshot, retry and timeline expansion behavior
+        run: |
+          python scripts/test_refresh.py
+          FEEDS_WIDTH=390 python scripts/test_refresh.py

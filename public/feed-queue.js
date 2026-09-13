@@ -14,6 +14,13 @@ class FeedQueue {
     this.visible = visible;
     this.pump();
   }
+  retry(entry, now = Date.now()) {
+    if (!this.entries.includes(entry) || entry.status !== 'error' || (entry.error?.retryAt || 0) > now) return false;
+    entry.status = 'idle';
+    entry.error = null;
+    this.pump();
+    return true;
+  }
   summary(section) {
     const entries = this.entries.filter(entry => entry.section === section);
     return {

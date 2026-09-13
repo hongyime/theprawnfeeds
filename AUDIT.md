@@ -122,3 +122,29 @@ Two bounded live RSS checks complemented the synthetic tests. The configured
 Guanjie feed returned 503 with no-store; its availability remains open.
 Hackread returned 200 with one normalized item, fresh-result metadata and
 public caching. No YouTube Data API calls or collection workflows were run.
+
+
+2026-09-13 refresh and rendering continuation: three browser regressions and
+one queue regression reproduced the absence of targeted retry/cache-age
+feedback and the full 620-article initial timeline in a synthetic Blogs fixture.
+The reader now shows source-check timestamps and cached fallback counts in both
+views. A manual retry targets only the failed feed, honors numeric/HTTP-date
+Retry-After values, and uses the existing six-request queue. Duplicate retries
+are ignored and hidden tabs do not start queued requests. The cooldown timer
+only enables a button; it never fetches content.
+
+The timeline initially renders 60 loaded articles and expands by 60 on request.
+All 620 fixture articles remain accessible with unique links and no extra feed
+requests. Expansion survives view switches and keyboard focus reaches the first
+new article. This is a DOM-size reduction, not a measured hosting-cost saving.
+Server cache policy, feed inventory, collection schedules and persistent records
+are unchanged. The snapshot remains visible until page reload; cached responses
+may still be returned by the existing browser/CDN/server caching layers.
+
+Node 22.22.3 passes all 25 unit/transport/API cases and validates all 185 sources.
+Five new browser scenarios pass at desktop and mobile widths. The complete
+existing reader suite also passes both widths, visits all 185 sources, verifies
+hidden-tab queue suspension, themes/modal/navigation and catalogue failure,
+and makes no real provider request. Hosted checks and production verification
+are next. Reader CI no longer duplicates branch-push and PR runs; PR and main
+checks retain the full suite and include the new browser coverage.
