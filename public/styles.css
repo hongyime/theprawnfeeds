@@ -1,3 +1,11 @@
+@font-face {
+  font-family: 'Space Grotesk';
+  src: url('/fonts/SpaceGrotesk.woff2') format('woff2');
+  font-weight: 300 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* CSS Variables for theming - Glance-inspired neutral UI */
 :root {
   /* Background colors */
@@ -98,7 +106,7 @@ html {
 }
 
 body {
-  font-family: 'Space Grotesk', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-family: 'Space Grotesk', sans-serif;
   background-color: var(--bg-primary);
   color: var(--text-primary);
   line-height: 1.5;
@@ -1562,6 +1570,11 @@ body.modal-open {
   --recency-week: #333333;
   --recency-month: #525252;
   --recency-old: #737373;
+  --neo-bg: #ffffff;
+  --neo-fg: #000000;
+  --neo-border: #000000;
+  --neo-shadow: #000000;
+  --neo-accent: #00d4d4;
 }
 [data-theme="dark"] {
   --bg-primary: #111111;
@@ -1586,6 +1599,17 @@ body.modal-open {
   --shadow-sm: 2px 2px 0 #FFFFFF;
   --shadow-md: 4px 4px 0 #FFFFFF;
   --shadow-lg: 6px 6px 0 #FFFFFF;
+  --neo-bg: #1a1a1a;
+  --neo-fg: #ffffff;
+  --neo-border: #e5e5e5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --neo-bg: #0d1117;
+    --neo-fg: #e6edf3;
+    --neo-border: #30363d;
+  }
 }
 .header { border-bottom-width: 3px; box-shadow: none; }
 .logo h1 { font-weight: 700; text-transform: uppercase; letter-spacing: -.04em; }
@@ -1617,6 +1641,35 @@ button:focus-visible, a:focus-visible, [role="button"]:focus-visible {
 .retry-feed-btn:disabled { cursor: default; color: var(--text-muted); background: var(--bg-secondary); }
 .config-error { margin: 16px; padding: 16px; border: 3px solid var(--border-color); }
 .config-error button { font: inherit; padding: 6px 12px; margin-left: 12px; }
+
+/* NeoCard */
+.feed-card, .modal, .mobile-nav-dropdown, .mobile-theme-dropdown,
+.timeline-day-group {
+  border: 2px solid var(--neo-border);
+  box-shadow: 4px 4px 0 var(--neo-border);
+  border-radius: 0;
+  background: var(--neo-bg);
+}
+.timeline-item {
+  border: 2px solid var(--neo-border);
+  box-shadow: 4px 4px 0 var(--neo-border);
+  border-radius: 0;
+}
+
+/* NeoButton */
+.load-more-btn, .view-fab, .timeline-more-btn, .retry-feed-btn,
+.header-tab, .mobile-nav-item, .mobile-theme-option, .modal-close {
+  border: 2px solid var(--neo-border);
+  box-shadow: 3px 3px 0 var(--neo-border);
+  font-weight: 600;
+  cursor: pointer;
+  transition: box-shadow 0.1s, transform 0.1s;
+}
+.load-more-btn:active, .view-fab:active, .timeline-more-btn:active, .retry-feed-btn:active,
+.header-tab:active, .mobile-nav-item:active, .mobile-theme-option:active, .modal-close:active {
+  box-shadow: 0 0 0;
+  transform: translate(2px, 2px);
+}
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
