@@ -11,3 +11,5 @@
 2026-09-13: Prefer one explicit failed-source retry over reloading a category; retain server cooldowns, queue limits and hidden-tab suspension. Show source check timestamps without automatic feed polling, and bound initial timeline DOM while preserving all loaded articles through explicit expansion.
 
 2026-09-13: Keep new recovery fixtures self-contained with synthetic catalogue data; retain the full canonical-catalogue suite separately. Repair legacy Labeler configuration using the installed action format and actual repository paths. Do not bypass failed checks or suppress scanner rules.
+
+2026-09-17: Self-hosted Space Grotesk font (woff2) replaces Google Fonts CDN. Added --neo-* CSS variables and NeoCard/NeoButton override rules matching the Prawn UI spec applied to the other three prawn sites on 2026-09-12. All 25 Node tests pass unchanged.

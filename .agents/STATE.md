@@ -1,5 +1,12 @@
 # Current State
 
+2026-09-17: Prawn UI applied to theprawnfeeds. Self-hosted Space Grotesk font
+(public/fonts/SpaceGrotesk.woff2, @font-face in styles.css), Google Fonts CDN
+links removed from index.html. Added --neo-* CSS variables to :root and
+[data-theme="dark"], plus @media (prefers-color-scheme: dark) block. NeoCard
+and NeoButton selectors appended; dark/light/system toggle unchanged.
+Branch: maintenance/prawn-ui-20260917. All 25 Node tests pass.
+
 Portfolio maintenance, 2026-09-10: Release prepared from clean remote baseline
 c54fa82. Category-on-demand loading preserves all 185 feeds, starts only the
 31 Blogs feeds on first open, and pauses unstarted requests while hidden.
