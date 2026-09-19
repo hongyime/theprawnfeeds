@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="A modern, mobile-first RSS dashboard with swipeable navigation">
+  <title>The Prawn Feeds</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+  <!-- Favicon -->
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" href="/favicon.svg">
+</head>
+
+<body>
+  <!-- Global Loading Screen -->
+  <div id="global-loader">
+    <div class="loader-content">
+      <div class="loader-spinner"></div>
+      <h2>The Prawn Feeds</h2>
+      <p>Catching fresh content...</p>
+    </div>
+  </div>
+
+  <header class="header">
+    <div class="header-content">
+      <div class="header-left">
+        <div class="logo">
+          <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 11a9 9 0 0 1 9 9"></path>
+            <path d="M4 4a16 16 0 0 1 16 16"></path>
+            <circle cx="5" cy="19" r="1"></circle>
+          </svg>
+          <h1 class="desktop-title">The Prawn Feeds</h1>
+        </div>
+      </div>
+      <!-- Hamburger Menu (Mobile Only) - Centered -->
+      <button class="hamburger-btn" id="hamburger-btn" aria-label="Open menu" aria-expanded="false">
+        <span class="hamburger-line"></span>
+        <span class="hamburger-line"></span>
+        <span class="hamburger-line"></span>
+      </button>
+      <div class="header-center">
+        <!-- Tab navigation (Desktop) -->
+        <div class="header-tabs desktop-tabs">
+          <button class="header-tab active" data-section="blogs">Blogs</button>
+          <button class="header-tab" data-section="news">News</button>
+          <button class="header-tab" data-section="substack">Substack</button>
+          <button class="header-tab" data-section="subreddits">Subreddits</button>
+          <button class="header-tab" data-section="youtube">YouTube</button>
+        </div>
+        <div id="live-loading-status" class="live-loading-status" aria-live="polite" role="status"></div>
+      </div>
+      <div class="header-right">
+        <!-- Theme toggle (Desktop) -->
+        <div class="theme-toggle desktop-theme">
+          <button class="theme-btn" data-theme="light" title="Light theme" aria-label="Light theme">☀️</button>
+          <button class="theme-btn" data-theme="dark" title="Dark theme" aria-label="Dark theme">🌙</button>
+          <button class="theme-btn active" data-theme="system" title="System theme"
+            aria-label="System theme">💻</button>
+        </div>
+        <!-- Theme button (Mobile) -->
+        <button class="mobile-theme-btn" id="mobile-theme-btn" aria-label="Toggle theme menu" aria-expanded="false">
+          <span class="theme-icon">🎨</span>
+        </button>
+      </div>
+    </div>
+    <!-- Mobile Navigation Dropdown -->
+    <div class="mobile-nav-dropdown" id="mobile-nav-dropdown" aria-hidden="true">
+      <button class="mobile-nav-item active" data-section="blogs">📝 Blogs</button>
+      <button class="mobile-nav-item" data-section="news">📰 News</button>
+      <button class="mobile-nav-item" data-section="substack">📰 Substack</button>
+      <button class="mobile-nav-item" data-section="subreddits">🔗 Subreddits</button>
+      <button class="mobile-nav-item" data-section="youtube">📺 YouTube</button>
+    </div>
+    <!-- Mobile Theme Dropdown -->
+    <div class="mobile-theme-dropdown" id="mobile-theme-dropdown" aria-hidden="true">
+      <button class="mobile-theme-option" data-theme="light">☀️ Light</button>
+      <button class="mobile-theme-option" data-theme="dark">🌙 Dark</button>
+      <button class="mobile-theme-option active" data-theme="system">💻 System</button>
+    </div>
+  </header>
+
+  <section class="reader-controls" aria-label="Reader controls">
+    <div class="reader-controls-inner">
+      <label class="reader-search">
+        <span class="sr-only">Search articles</span>
+        <input id="article-search" type="search" placeholder="Search loaded articles" autocomplete="off">
+      </label>
+      <select id="source-filter" aria-label="Filter by source">
+        <option value="">All sources</option>
+      </select>
+      <select id="recency-filter" aria-label="Filter by recency">
+        <option value="30">Last 30 days</option>
+        <option value="7">Last 7 days</option>
+        <option value="1">Today</option>
+        <option value="all">All loaded</option>
+      </select>
+      <button id="saved-filter" class="control-btn" type="button" aria-pressed="false">Saved</button>
+      <button id="refresh-section" class="control-btn" type="button">Retry live</button>
+      <button id="saved-export" class="control-btn" type="button">Export saved</button>
+      <label class="control-btn import-btn">
+        Import saved
+        <input id="saved-import" type="file" accept="application/json,.json">
+      </label>
+    </div>
+  </section>
+
+  <!-- Swipeable Sections Container -->
+  <main class="sections-container" role="main">
+    <div class="sections-wrapper" id="sections-wrapper" aria-live="polite">
+      <!-- Blogs Section -->
+      <section class="section active" id="blogs-section" data-section="blogs" role="tabpanel" aria-labelledby="blogs-tab">
+        <div class="section-content">
+          <div class="feed-grid" id="blogs-grid" role="feed" aria-label="Blog feeds"></div>
+        </div>
+      </section>
+
+      <!-- News Section -->
+      <section class="section" id="news-section" data-section="news" role="tabpanel"
+        aria-labelledby="news-tab" aria-hidden="true">
+        <div class="section-content">
+          <div class="feed-grid" id="news-grid" role="feed" aria-label="News feeds"></div>
+        </div>
+      </section>
+
+      <!-- Substack Section -->
+      <section class="section" id="substack-section" data-section="substack" role="tabpanel" aria-labelledby="substack-tab"
+        aria-hidden="true">
+        <div class="section-content">
+          <div class="feed-grid" id="substack-grid" role="feed" aria-label="Substack feeds"></div>
+        </div>
+      </section>
+
+      <!-- Subreddits Section -->
+      <section class="section" id="subreddits-section" data-section="subreddits" role="tabpanel"
+        aria-labelledby="subreddits-tab" aria-hidden="true">
+        <div class="section-content">
+          <div class="feed-grid" id="subreddits-grid" role="feed" aria-label="Subreddit feeds"></div>
+        </div>
+      </section>
+
+      <!-- YouTube Section -->
+      <section class="section" id="youtube-section" data-section="youtube" role="tabpanel"
+        aria-labelledby="youtube-tab" aria-hidden="true">
+        <div class="section-content">
+          <div class="feed-grid" id="youtube-grid" role="feed" aria-label="YouTube video feeds"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Offline Feeds Section -->
+  <section class="offline-section" id="offline-section" style="display: none;" aria-label="Offline feeds">
+    <div class="offline-header" id="offline-header" role="button" tabindex="0" aria-expanded="false"
+      aria-controls="offline-content">
+      <h2>⚠️ Offline Feeds (<span id="offline-count" aria-live="polite">0</span>)</h2>
+      <span class="collapse-indicator" aria-hidden="true">▼</span>
+    </div>
+    <div class="offline-content" id="offline-content" aria-label="List of offline feeds">
+      <div class="feed-grid" id="offline-grid"></div>
+    </div>
+  </section>
+
+  <!-- Load More Modal -->
+  <div class="modal-overlay" id="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modal-title">Feed Title</h3>
+        <button class="modal-close" id="modal-close" aria-label="Close modal">✕</button>
+      </div>
+      <div class="modal-body" id="modal-body" role="feed" aria-label="Additional feed items">
+        <!-- Feed items will be loaded here -->
+      </div>
+      <div class="modal-loading" id="modal-loading" style="display: none;" aria-live="polite" aria-busy="true">
+        <div class="loading-spinner" aria-hidden="true"></div>
+        <p>Loading more posts...</p>
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <p>Prawn Feeds &copy; <span id="year"></span></p>
+  </footer>
+
+  <button id="view-fab" class="view-fab" type="button" aria-label="Switch to card view" title="Cards view">
+    📇
+  </button>
+
+  <script src="/app.js"></script>
+</body>
+
+</html>
