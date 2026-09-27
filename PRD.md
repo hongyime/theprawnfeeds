@@ -23,7 +23,7 @@ A Vercel-hosted RSS dashboard that serves a static vanilla JavaScript client and
 
 ## User Stories
 
-- As Bryan, I want a single page that shows the latest content from followed feeds.
+- As the maintainer, I want a single page that shows the latest content from followed feeds.
 - As a visitor, I want to browse aggregated content without signing in.
 - As the owner, I want feed URLs controlled by config rather than caller input.
 
@@ -107,3 +107,5 @@ Vercel serves `public/` as static assets and `api/*.js` as Node.js functions.
 - Feed data is still fetched on user page loads; a scheduled static snapshot remains the preferred future architecture.
 - Serverless memory cache is best-effort and can reset on cold starts.
 - `feeds.json` must be edited manually to add/remove sources.
+
+Machine-specific values in this document use privacy placeholders.

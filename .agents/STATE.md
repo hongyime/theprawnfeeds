@@ -76,3 +76,7 @@ Next steps:
 2026-09-13 implementation: three synthetic browser regressions and one queue regression reproduced missing retry, hidden snapshot age and unbounded initial timeline rendering. Manual per-feed retry now uses the existing six-request queue, honors source Retry-After values and avoids repeat clicks/hidden-tab starts. Snapshot timestamps and stale fallback counts are visible in both views. Timeline starts with 60 articles and preserves every loaded article through explicit expansion, including keyboard focus. Initial fixture DOM changes from 620 articles to 60; no provider polling, collection schedule, API cache policy or persistent data change. Node 22 and desktop/mobile reader checks are running.
 
 2026-09-13 hosted follow-up: PR #165 exposed legacy Labeler configuration and three Bandit notes in the new browser fixture. Migrate label matching syntax without workflow permission changes and remove the unnecessary fixture subprocess. Five revised browser cases pass on desktop/mobile; local Bandit has zero findings for the new fixture. Application runtime bytes are unchanged by this follow-up.
+
+## Reviewed workspace maintenance - 2026-09-27
+
+Publish the reviewed portability and privacy maintenance from the current default branch, preserving concurrent upstream work and original workspace changes. Validation is limited to the documented offline fixtures and hosted checks; no live data job or deployment command was executed locally.
